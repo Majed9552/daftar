@@ -227,6 +227,7 @@ const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 const num=v=>{const n=parseFloat(String(v??"").replace(/,/g,""));return isFinite(n)?n:0};
 const sum=(a,f)=>a.reduce((s,x)=>s+f(x),0);
 const FUND="صندوق السداد";
+const APPV="1.8.2";
 
 /* ---------- storage + phone features (Android bridge, browser fallback) ---------- */
 const KEY="sadad-v1";
@@ -832,6 +833,7 @@ function viewDebts(){
   h+='<section class="card"><h2>التنبيهات</h2><p class="small muted">التنبيه يرن ويكرر الرنة لين تفتحه. الدفعات: قبلها بـ 3 أيام، كل 6 ساعات (9 الصبح، 3 العصر، 9 الليل). اليومية: 9 الليل، ثم 12 الليل و6 الفجر لو ما سجلتها. اضغط على الإشعار ويفتح لك صفحة التنبيهات.</p><div class="btns"><button class="btn" data-a="testnotify">جرّب التنبيه الحين</button></div></section>';
   h+='<section class="card"><div class="card-h"><h2>المزامنة بين الأجهزة</h2><span class="chip '+(syncOn()&&!SY.err?"done":"")+'">'+(syncOn()?"مفعّلة":"غير مفعّلة")+'</span></div><p class="small muted" id="syncStatus">'+esc(syncStatusText())+'</p><div class="btns"><button class="btn" data-a="syncsetup">'+(syncOn()?"إعدادات المزامنة":"فعّل المزامنة")+"</button>"+(syncOn()?'<button class="btn primary" data-a="syncnow">زامن الحين</button>':"")+"</div></section>";
   h+='<section class="card"><h2>نسخة احتياطية</h2><p class="small muted">بياناتك محفوظة على هذا الجهاز. خذ نسخة كل أسبوع وأرسلها لنفسك (واتساب أو إيميل).</p><div class="btns"><button class="btn" data-a="export">مشاركة نسخة احتياطية</button><button class="btn" data-a="import">استرجاع نسخة</button><button class="btn danger" data-a="reset">رجوع للخطة الأصلية</button></div></section>';
+  h+='<section class="card"><div class="card-h"><h2>الإصدار '+APPV+"</h2>"+(location.protocol.startsWith("http")?'<button class="btn small" data-a="appupdate">حدّث التطبيق الحين</button>':"")+'</div><p class="small muted">'+(location.protocol.startsWith("http")?"التطبيق يتحدث لحاله لما تفتحه وفيه إنترنت. لو قلت لك فيه إصدار جديد وما طلع، اضغط الزر.":"نسخة التابلت تتحدث بتثبيت ملف APK الجديد فوقها.")+"</p></section>";
   return h}
 
 let repMode="income",repRange="month",repDebt="all";
@@ -1107,6 +1109,7 @@ document.addEventListener("click",e=>{
     case"tofund":toFundNow();break;
     case"advice":adviceSheet();break;
     case"syncsetup":syncSheet();break;
+    case"appupdate":toast("جاري التحديث...");(async()=>{try{if(window.caches){const ks=await caches.keys();await Promise.all(ks.map(k=>caches.delete(k)))}if(navigator.serviceWorker){const rs=await navigator.serviceWorker.getRegistrations();await Promise.all(rs.map(r=>r.update().catch(()=>{})))}}catch(e){}location.reload()})();break;
     case"viewmode":try{localStorage.setItem("sadad-view",el.dataset.v)}catch(e){}location.reload();break;
     case"syncnow":toast("جاري المزامنة...");syncNow(true);break;
     case"syncoff":SY={repo:SY.repo,token:"",last:0,err:""};saveSY();closeSheet(true);render();toast("المزامنة متوقفة على هذا الجهاز");break;
