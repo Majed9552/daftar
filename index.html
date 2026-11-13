@@ -236,7 +236,7 @@ const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 const num=v=>{const n=parseFloat(String(v??"").replace(/,/g,""));return isFinite(n)?n:0};
 const sum=(a,f)=>a.reduce((s,x)=>s+f(x),0);
 const FUND="صندوق السداد";
-const APPV="2.1";
+const APPV="2.1.1";
 const TAX="مخصص الضريبة";
 
 /* ---------- storage + phone features (Android bridge, browser fallback) ---------- */
@@ -272,7 +272,23 @@ function defaultState(){return{
   items:[],order:[],overrides:{},entries:{},payments:[],planned:[],reserves:[],closed:{}
 }}
 
-const REFV="";function applyRef(){return false}
+/* a plan update: a small description of changes (new agreements, dates, amounts) applied once on top of the saved data */
+function applySpec(sp){
+  if(!sp||!sp.sadadUpdate||S.ref===sp.sadadUpdate)return false;
+  const g=id=>S.items.find(i=>i.id===id);
+  (sp.items||[]).forEach(o=>{const d=g(o.id);if(!d)return;
+    if(o.clr)Object.keys(S.overrides).forEach(k=>{if(k.startsWith(o.id+"|"))delete S.overrides[k]});
+    if(o.cur!=null)d.balance=Math.round((num(o.cur)+paidBy(d.id))*100)/100;
+    if(o.unpaid&&paidIn(d.id,o.unpaid.ym)<1)d.start=o.unpaid.start;
+    Object.assign(d,o.set||{})});
+  Object.keys(sp.ov||{}).forEach(k=>{if(g(k.split("|")[0]))S.overrides[k]=sp.ov[k]});
+  (sp.add||[]).forEach(x=>{if(!g(x.id)){S.items.push(x);if(x.kind!=="bill")S.order.push(x.id)}});
+  S.contacts=S.contacts||[];(sp.contacts||[]).forEach(c=>{if(g(c.item)&&!S.contacts.some(x=>x.id===c.id))S.contacts.push(c)});
+  if(sp.rules)S.rules=sp.rules;
+  S.ref=sp.sadadUpdate;return true}
+const REF=null;
+function applyRef(){return applySpec(REF)}
+
 let S=Store.load();
 if(!S||!S.items){S=defaultState();Store.save(S)}
 /* updates for plans saved by an earlier version: saved days, payments and reserves stay */
@@ -1344,7 +1360,7 @@ function exportData(){
   try{if(Native.has("share")){AndroidBridge.share(txt);return}}catch(e){}
   openSheet('<h2>نسخة احتياطية</h2><p class="small muted">انسخ النص كامل واحفظه عندك.</p><div class="field"><textarea id="expTxt" rows="8" readonly>'+esc(txt)+'</textarea></div><div class="btns" style="justify-content:flex-end"><button class="btn" data-a="close">إغلاق</button></div>');$("#expTxt").select()}
 function importData(){
-  openSheet('<h2>استرجاع نسخة</h2><form><div class="field"><label for="f_imp">الصق نص النسخة الاحتياطية</label><textarea id="f_imp" name="imp" rows="8" style="direction:ltr"></textarea></div><p class="small muted">البيانات الحالية تنستبدل بالنسخة.</p>'+actionsRow("استرجاع")+"</form>",fd=>{try{const o=JSON.parse(fd.imp);if(!o.items||!o.order)throw 0;S=o;S.updatedAt=Date.now();Store.save(S);location.reload()}catch(e){toast("النص هذا مو نسخة صحيحة");return false}})}
+  openSheet('<h2>استرجاع نسخة</h2><form><div class="field"><label for="f_imp">الصق نص النسخة الاحتياطية أو كود تحديث الخطة</label><textarea id="f_imp" name="imp" rows="8" style="direction:ltr"></textarea></div><p class="small muted">البيانات الحالية تنستبدل بالنسخة.</p>'+actionsRow("استرجاع")+"</form>",fd=>{try{const o=JSON.parse(fd.imp);if(o.sadadUpdate){if(applySpec(o))done("تطبّق تحديث الخطة ("+o.sadadUpdate+")");else{closeSheet(true);toast("هذا التحديث مطبّق من قبل")}return false}if(!o.items||!o.order)throw 0;S=o;S.updatedAt=Date.now();Store.save(S);location.reload()}catch(e){toast("النص هذا مو نسخة صحيحة");return false}})}
 
 /* ---------- routing & events ---------- */
 const VIEWS={alerts:viewAlerts,home:viewHome,plan:viewPlan,day:viewDay,debts:viewDebts,reports:viewReports};
