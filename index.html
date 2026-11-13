@@ -236,7 +236,7 @@ const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 const num=v=>{const n=parseFloat(String(v??"").replace(/,/g,""));return isFinite(n)?n:0};
 const sum=(a,f)=>a.reduce((s,x)=>s+f(x),0);
 const FUND="صندوق السداد";
-const APPV="2.0.4";
+const APPV="2.1";
 const TAX="مخصص الضريبة";
 
 /* ---------- storage + phone features (Android bridge, browser fallback) ---------- */
@@ -272,6 +272,7 @@ function defaultState(){return{
   items:[],order:[],overrides:{},entries:{},payments:[],planned:[],reserves:[],closed:{}
 }}
 
+const REFV="";function applyRef(){return false}
 let S=Store.load();
 if(!S||!S.items){S=defaultState();Store.save(S)}
 /* updates for plans saved by an earlier version: saved days, payments and reserves stay */
@@ -315,6 +316,9 @@ function mergeStates(L,R){
   const ids=new Set(out.items.filter(i=>i.kind==="debt"||i.kind==="goal").map(i=>i.id));
   out.order=(out.order||[]).filter(id=>ids.has(id));ids.forEach(id=>{if(!out.order.includes(id))out.order.push(id)});
   out.closed=Object.assign({},older.closed||{},newer.closed||{});
+  out.ref=[L.ref||"",R.ref||""].sort().pop();out.rules=newer.rules||older.rules||[];
+  /* the side that already carries the newer reference framework keeps its month-by-month schedule */
+  {const hi=(L.ref||"")>(R.ref||"")?L:(R.ref||"")>(L.ref||"")?R:null;if(hi){out.overrides=JSON.parse(JSON.stringify(hi.overrides||{}));out.rules=hi.rules||[]}}
   out.stamp=stamp;out.tomb=tomb;out.updatedAt=Math.max(lu,ru);return out}
 /* a copy of your data is kept on this device for each of the last 7 days */
 const SNAP="sadad-snap-";let snapAt=0;
@@ -331,7 +335,7 @@ const b64e=x=>btoa(unescape(encodeURIComponent(x))),b64d=x=>decodeURIComponent(e
 const ghFile=(method,body)=>fetch("https://api.github.com/repos/"+SY.repo+"/contents/data.json"+(method==="GET"?"?t="+Date.now():""),{method,cache:"no-store",headers:{Authorization:"Bearer "+SY.token,Accept:"application/vnd.github+json"},body:body?JSON.stringify(body):undefined});
 async function ghRead(){const r=await ghFile("GET");if(r.status===404)return null;if(r.status===401||r.status===403)throw new Error("الرمز غير صحيح أو ما له صلاحية على المستودع");if(!r.ok)throw new Error("خطأ "+r.status);const j=await r.json();return{sha:j.sha,data:JSON.parse(b64d(j.content))}}
 async function ghWrite(sha){const body={message:"sync",content:b64e(JSON.stringify(S))};if(sha)body.sha=sha;const r=await ghFile("PUT",body);if(r.status===404)throw new Error("المستودع غير موجود أو الرمز ما له صلاحية كتابة");if(!r.ok)throw new Error(r.status===409||r.status===422?"الجهاز الثاني حفظ قبلك، أعيد المحاولة":"خطأ رفع "+r.status)}
-function applyRemote(data){S=data;Store.save(S);migrate();PREV=recIndex(S);render()}
+function applyRemote(data){S=data;Store.save(S);migrate();PREV=recIndex(S);if(applyRef())persist();render()}
 function syncBanner(){
   if(!syncOn())return"";
   const pending=num(S.updatedAt)>num(SY.last);
@@ -408,7 +412,10 @@ function billActive(b,ym){
 function defaultPlanned(it,ym){
   if(it.kind==="bill")return billActive(it,ym)?num(it.amount):0;
   if(it.start&&ym<it.start)return 0;
-  return num(it.amount)}
+  let a=num(it.amount);(it.steps||[]).forEach(x=>{if(ym>=x.from)a=num(x.amount)});
+  return a}
+/* a debt paid in two halves each month (for example the 10th and the 20th) */
+const splitDays=(it,ym)=>{const o=ovOf(it.id,ym);return it.split&&it.split.days&&ym>=(it.split.from||"")&&!(o&&o.day!=null)?it.split.days:null};
 function plannedFor(it,ym){const o=ovOf(it.id,ym);return o&&o.amount!=null?num(o.amount):defaultPlanned(it,ym)}
 const dayFor=(it,ym)=>{const o=ovOf(it.id,ym);return o&&o.day!=null?o.day:it.day};
 const nextTarget=()=>S.order.map(byId).find(it=>it&&inQueue(it)&&curBal(it)>0.5)||null;
@@ -501,7 +508,9 @@ function simulate(o){
       const id=it.id;if(bal[id]<=0.5)continue;
       if(isPersonal(it)){const dueYm=ymOf(it.due||dateIn(cur,28));if(dueYm===ym||(first&&dueYm<cur))lines.push(mk(it,"full",bal[id],it.due,dueYm));continue}
       const ov=ovOf(id,ym),amt=Math.min(bal[id],Math.max(0,plannedFor(it,ym)-paidIn(id,ym)));
-      if(amt>0.5||(ov&&ov.amount===0&&defaultPlanned(it,ym)>0))lines.push(mk(it,"min",amt,dateIn(ym,dayFor(it,ym)),ym,{skipped:amt<=0.5}))}
+      const sd=amt>0.5?splitDays(it,ym):null;
+      if(sd){const share=plannedFor(it,ym)/sd.length;let left=amt;const parts=[];for(let i=sd.length-1;i>=0;i--){const x=Math.min(share,left);left-=x;if(x>0.5)parts.unshift(mk(it,"min",x,dateIn(ym,sd[i]),ym))}parts.forEach(x=>lines.push(x))}
+      else if(amt>0.5||(ov&&ov.amount===0&&defaultPlanned(it,ym)>0))lines.push(mk(it,"min",amt,dateIn(ym,dayFor(it,ym)),ym,{skipped:amt<=0.5}))}
     S.planned.forEach(p=>{const it=byId(p.item);if(!it||bal[it.id]<=0.5)return;const pm=ymOf(p.date);if(pm===ym||(first&&pm<cur))lines.push(mk(it,"exc",Math.min(num(p.amount),bal[it.id]),p.date,pm,{pid:p.id}))});
     const kindRank={bill:0,full:1,min:2,exc:3,budget:4,tax:5};
     lines.sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:(kindRank[a.kind]-kindRank[b.kind])||(pIdx(a.item)-pIdx(b.item)));
@@ -646,6 +655,8 @@ function pushReminders(){
   else if(!S.closed[cur]&&!autoOn("fund")){const e=toDate(dateIn(cur,31),18);list.push({s:e.getTime(),t:"آخر يوم في الشهر: حوّل الفائض للصندوق"})}
   S.items.filter(it=>isDebt(it)&&!isPersonal(it)&&curBal(it)>0.5).forEach(it=>{const d=deadOf(it);if(d&&diffDays(t,d)<=7)list.push({s:Date.now()-60000,t:it.name+": "+(d<t?"فات الموعد النهائي ":"موعد نهائي ")+dLabel(d)});const su=settleOf(it)?it.settleUntil:"";if(su&&diffDays(t,su)<=7)list.push({s:Date.now()-60000,t:it.name+": عرض التسوية ينتهي "+dLabel(su)})});
   (S.contacts||[]).forEach(c=>{const d=byId(c.item);if(c.next&&d&&curBal(d)>0.5&&diffDays(t,c.next)<=1)list.push({s:toDate(c.next,9).getTime(),t:"تابع مع "+d.name+(c.res==="settle"?" (عرض التسوية)":"")})});
+  S.items.filter(d=>isDebt(d)&&d.call&&curBal(d)>0.5).forEach(d=>{const ym=ymOf(t),cd=dateIn(ym,d.call.day);if(diffDays(t,cd)<=2&&cd>=addDays(t,-5)&&plannedFor(d,ym)-paidIn(d.id,ym)>0.5&&!(S.contacts||[]).some(c=>c.item===d.id&&c.date>=addDays(cd,-3)&&ymOf(c.date)===ym))list.push({s:toDate(cd,9).getTime(),t:"اتصل بـ "+d.call.who+" قبل دفعة "+d.name})});
+  S.items.filter(d=>isDebt(d)&&d.critical&&curBal(d)>0.5).forEach(d=>{const l=(SIM.months[0].lines||[]).concat((SIM.months[1]||{lines:[]}).lines).find(x=>x.item===d.id&&x.kind==="min"&&!x.skipped&&x.amount>0.5);if(l&&diffDays(t,l.date)<=7&&diffDays(t,l.date)>3)list.push({s:toDate(addDays(l.date,-7),9).getTime(),t:"حرج: "+d.name+" "+money(l.amount)+" يوم "+dLabel(l.date)+" · لا تفوّتها"})});
   const fr=adviceSnoozed()?null:fundReady();if(fr)list.push({s:Date.now()-60000,t:"صندوق السداد يكفي "+(isGoal(fr)?"للهدف: ":"تقفل ")+fr.name+" ("+money(curBal(fr))+")"});
   list.sort((a,b)=>a.s-b.s);
   const json=JSON.stringify(list.slice(0,40));
@@ -673,7 +684,7 @@ function lineChips(l,t,cur){
   else if(l.kind==="bill")c+='<span class="chip">مصروف ثابت</span>';
   else if(l.kind==="tax")c+='<span class="chip exc">تجنيب '+num(taxCfg().pct)+"% من الدخل</span>"+(l.for===cur&&taxShort()>0.5?'<span class="chip">لين اليوم '+money(taxShort())+"</span>":"");
   else if(l.kind==="budget")c+='<span class="chip">ميزانية '+money(l.budget)+'</span><span class="chip">صرفت '+money(l.spent)+" من اليوميات</span>"+(l.spent>l.budget+0.5?'<span class="chip short">زادت '+money(l.spent-l.budget)+"</span>":"");
-  else if(l.kind==="min")c+='<span class="chip min">قسط '+l.no+" من "+l.total+(l.thenClose?" + إقفال":"")+"</span>";
+  else if(l.kind==="min")c+='<span class="chip min">قسط '+l.no+" من "+l.total+(l.thenClose?" + إقفال":"")+"</span>"+((byId(l.item)||{}).critical?'<span class="chip late">حرج: لا تفوّت</span>':"");
   else if(l.kind==="full")c+='<span class="chip full">دين شخصي · دفعة كاملة</span>';
   else if(l.kind==="exc")c+='<span class="chip exc">دفعة استثنائية</span>';
   else if(l.kind==="close")c+='<span class="chip fund">إقفال من الصندوق</span>';
@@ -806,12 +817,26 @@ function buildAlerts(){
   const t=todayStr(),out=[],need=decisionYm();
   if(need&&surplusFor(need)>0)out.push({lvl:"over",tag:"قرار",title:"قرّر وين يروح فائض "+mName(need),sub:"فائض "+money(surplusFor(need))+" ينتظر قرارك: للصندوق، لدين، أو تصحيح الدخل.",go:()=>surplusSheet(need)});
   (SIM.months[0]?.lines||[]).concat(SIM.months[1]?.lines||[]).forEach(l=>{
-    if(!OBL.has(l.kind)||l.kind==="budget"||l.skipped||l.amount<=0.5)return;const st=lineState(l,t);if(!st)return;
-    out.push({lvl:st,tag:st==="over"?"متأخر":"قريب",title:l.name+" · "+money(l.amount),sub:(st==="over"?"متأخر "+diffDays(l.date,t)+" يوم (كان يوم "+dLabel(l.date)+")":l.date===t?"يستحق اليوم":"يستحق "+dLabel(l.date)+" · باقي "+diffDays(t,l.date)+" يوم")+". اضغط تسجل الدفع، تغير المبلغ أو التاريخ، أو تأجل.",go:()=>lineSheet(l)})});
+    if(!OBL.has(l.kind)||l.kind==="budget"||l.skipped||l.amount<=0.5)return;const li=byId(l.item)||{},crit=!!li.critical&&l.kind==="min";const st=lineState(l,t)||(crit&&diffDays(t,l.date)<=7?"soon":"");if(!st)return;
+    out.push({lvl:st,tag:st==="over"?"متأخر":crit?"حرج":"قريب",title:l.name+" · "+money(l.amount),sub:(li.rule?li.rule+" · ":"")+(st==="over"?"متأخر "+diffDays(l.date,t)+" يوم (كان يوم "+dLabel(l.date)+")":l.date===t?"يستحق اليوم":"يستحق "+dLabel(l.date)+" · باقي "+diffDays(t,l.date)+" يوم")+". اضغط تسجل الدفع، تغير المبلغ أو التاريخ، أو تأجل.",go:()=>lineSheet(l)})});
   S.items.filter(it=>isDebt(it)&&!isPersonal(it)&&curBal(it)>0.5).forEach(it=>{
     const d=deadOf(it);if(d&&diffDays(t,d)<=7)out.push({lvl:d<t?"over":"soon",tag:"موعد",title:it.name+": "+(d<t?"فات الموعد النهائي ":"موعد نهائي ")+dLabel(d),sub:flags(it)+". اضغط تفتح سجل الدين.",go:()=>openReport(it.id)});
     const su=settleOf(it)?it.settleUntil:"";if(su&&diffDays(t,su)<=7)out.push({lvl:"soon",tag:"تسوية",title:it.name+": عرض التسوية ينتهي "+dLabel(su),sub:"تدفع "+money(settleOf(it))+" ويسقط "+money(curBal(it)-settleOf(it))+". اضغط تسجل دفع التسوية.",go:()=>settleSheet(it.id)})});
-  (S.contacts||[]).filter(c=>c.next&&c.next<=t&&byId(c.item)&&curBal(byId(c.item))>0.5).forEach(c=>{const d=byId(c.item);out.push({lvl:"soon",tag:"متابعة",title:"تابع مع "+d.name+(c.who?" ("+c.who+")":""),sub:(c.res==="settle"?"عرض التسوية ينتهي أو يحتاج رد. ":"")+(c.what||"اتصل وسجّل النتيجة.")+" اضغط تفتح سجل التواصل.",go:()=>openReport(d.id)})});
+  const live=d=>d&&(d.kind==="bill"||curBal(d)>0.5);
+  (S.contacts||[]).filter(c=>c.next&&c.next<=t&&live(byId(c.item))).forEach(c=>{const d=byId(c.item);out.push({lvl:"soon",tag:"متابعة",title:"تابع: "+d.name+(c.who?" ("+c.who+")":""),sub:(c.res==="settle"?"عرض التسوية ينتهي أو يحتاج رد. ":"")+(c.what||"اتصل وسجّل النتيجة.")+" اضغط تحدّث المتابعة.",go:()=>contactSheet(null,c.id)})});
+  /* call the creditor before the payment (verbal agreements) */
+  S.items.filter(d=>isDebt(d)&&d.call&&curBal(d)>0.5).forEach(d=>{const ym=ymOf(t),cd=dateIn(ym,d.call.day);
+    if(diffDays(t,cd)>2||plannedFor(d,ym)-paidIn(d.id,ym)<=0.5)return;
+    if((S.contacts||[]).some(c=>c.item===d.id&&c.date>=addDays(cd,-3)&&ymOf(c.date)===ym))return;
+    out.push({lvl:t>=cd?"over":"soon",tag:"اتصال",title:"اتصل بـ "+d.call.who+" قبل دفعة "+d.name,sub:"يوم "+dLabel(cd)+": أكّد الاتفاق قبل ما تدفع، وسجّل الاتصال هنا عشان يختفي التنبيه.",go:()=>contactSheet(d.id)})});
+  /* after paying: send the receipt */
+  S.items.filter(d=>d.after).forEach(d=>{const p=S.payments.filter(x=>x.item===d.id&&!x.ack&&diffDays(x.date,t)<=3&&diffDays(x.date,t)>=0).pop();
+    if(p)out.push({lvl:"soon",tag:"إيصال",title:d.name+": أرسل إيصال دفعة "+money(p.amount),sub:d.after+". اضغط لما ترسله.",go:()=>confirmSheet("أرسلت الإيصال؟","نعم، أرسلته",()=>{p.ack=true;done("تمام")})})});
+  /* a crowded end of month */
+  {const ym=ymOf(t),dd=dDay(t),m0=SIM.months[0];
+   if(dd>=8&&dd<23&&m0){const need=sum(m0.lines.filter(l=>OBL.has(l.kind)&&l.kind!=="budget"&&l.kind!=="tax"&&!l.skipped&&l.for===ym&&l.date>=dateIn(ym,23)),l=>l.amount),have=Math.max(0,freeCash());
+    if(need>=2000&&have<need)out.push({lvl:"",tag:"زحمة",title:"نهاية الشهر: "+money(need)+" من يوم 23 لآخر الشهر",sub:"معك الحين "+money(have)+". لازم يتجمع "+money(need-have)+" قبل يوم 23. اضغط تشوف الخطة.",go:()=>{location.hash="plan"}})}}
+  (S.contacts||[]).filter(c=>c.todo&&!c.next&&live(byId(c.item))).forEach(c=>{const d=byId(c.item);out.push({lvl:"",tag:"مهمة",title:d.name+": "+(c.who||"مهمة معلّقة"),sub:(c.what||"")+" اضغط تحدّثها أو تشيل علامة المهمة.",go:()=>contactSheet(null,c.id)})});
   {const due=S.items.filter(d=>isDebt(d)&&!isPersonal(d)&&num(d.rate)>0&&curBal(d)>0.5&&diffDays(d.recon||S.startDate,t)>=35);
    if(due.length)out.push({lvl:"",tag:"كشف",title:"طابق رصيد "+due[0].name+" مع كشف الحساب"+(due.length>1?" (+"+(due.length-1)+" ديون)":""),sub:"مرة بالشهر تكتب الرصيد الفعلي من الكشف، والتطبيق يصحح الفوائد والرسوم لحاله.",go:()=>reconSheet(due[0].id)})}
   if(taxShort()>=50&&freeCash()>=50)out.push({lvl:"",tag:"ضريبة",title:"جنّب "+money(Math.min(taxShort(),freeCash()))+" لمخصص الضريبة",sub:"من دخلك المسجل لين اليوم. اضغط تجنّبه عشان ضريبة السنة الجاية ما تتراكم.",go:()=>taxSheet()});
@@ -831,7 +856,9 @@ function todoCard(){
 function viewAlerts(){
   let h='<section class="card"><div class="card-h"><h2>التنبيهات</h2><span class="small muted">'+ALERTS.length+" تحتاج إجراء</span></div>"+'<p class="small muted">كل شي يحتاج منك إجراء موجود هنا. اضغط على أي تنبيه ويفتح لك مكان معالجته. التنبيه يختفي لما تعالجه.</p>';
   h+=ALERTS.length?'<div class="rows">'+ALERTS.map(alertRow).join("")+"</div>":'<div class="empty">ما فيه شي يحتاج منك إجراء الحين.</div>';
-  return h+"</section>"}
+  h+="</section>";
+  if((S.rules||[]).length)h+='<section class="card"><h2>قواعدك الثابتة</h2><ul class="small" style="margin:0;padding-inline-start:18px;display:grid;gap:6px">'+S.rules.map(r=>"<li>"+esc(r)+"</li>").join("")+"</ul></section>";
+  return h}
 
 /* ---------- views ---------- */
 function snowCard(){
@@ -929,13 +956,20 @@ function wireDay(){
     toast(msg,4200)})}
 
 function viewDebts(){
-  const list=S.order.map(byId).filter(Boolean),bills=S.items.filter(i=>i.kind==="bill");
+  const list=S.order.map(byId).filter(Boolean),bills=S.items.filter(i=>i.kind==="bill").sort((a,b)=>(a.fromDaily?99:num(a.day))-(b.fromDaily?99:num(b.day)));
   let qn=0;
   let h='<section class="card"><div class="card-h"><h2>ترتيب صندوق السداد</h2><div class="btns"><button class="btn small" data-a="add" data-k="installment">+ دين بأقساط</button><button class="btn small" data-a="add" data-k="personal">+ دين شخصي</button><button class="btn small" data-a="add" data-k="goal">+ هدف</button></div></div><p class="small muted">الصندوق يقفل بهذا الترتيب، واحد واحد. الأقساط تمشي كلها في مواعيدها لين يجي دور الدين. الدين الشخصي خارج الترتيب: يندفع كامل بتاريخه. قدّم أو أخّر بالأسهم.</p><div class="rows">';
   h+=list.map((d,i)=>{const b=curBal(d),q=inQueue(d)&&b>0.5;if(q)qn++;
-    const sub=isPersonal(d)?"شخصي · دفعة كاملة "+M(b)+" يوم "+dLabel(d.due)+" "+d.due.slice(0,4)+(b<=0.5?" · انتهى ✓":""):isGoal(d)?(d.save?"ادخار":"هدف")+" · باقي "+M(b)+" من "+M(d.target)+" · "+payoffText(d.id):"خطورة "+RISKN[riskOf(d)]+" · "+flags(d)+" · باقي "+M(b)+(num(d.amount)?" · قسط "+M(d.amount)+" يوم "+d.day:" · بدون قسط ثابت")+(num(d.rate)>0?" · فائدة "+num(d.rate)+"%"+(d.rateEst?" (تقدير)":"")+" ≈ "+money(intNow(d))+" بالشهر":"")+" · "+payoffText(d.id);
+    const sub=isPersonal(d)?"شخصي · دفعة كاملة "+M(b)+" يوم "+dLabel(d.due)+" "+d.due.slice(0,4)+(b<=0.5?" · انتهى ✓":""):isGoal(d)?(d.save?"ادخار":"هدف")+" · باقي "+M(b)+" من "+M(d.target)+" · "+payoffText(d.id):"خطورة "+RISKN[riskOf(d)]+" · "+flags(d)+" · باقي "+M(b)+(num(d.amount)?" · قسط "+M(d.amount)+" يوم "+(d.split?d.split.days.join(" و"):d.day)+(d.steps||[]).map(x=>" · يصير "+M(x.amount)+" من "+mName(x.from)).join(""):" · بدون قسط ثابت")+(num(d.rate)>0?" · فائدة "+num(d.rate)+"%"+(d.rateEst?" (تقدير)":"")+" ≈ "+money(intNow(d))+" بالشهر":"")+" · "+payoffText(d.id);
     return '<div class="prio"><span class="n'+(isPersonal(d)?" personal":isGoal(d)?" goal":b<=0.5?" off":"")+'">'+(isPersonal(d)?"ش":b<=0.5?"✓":qn)+'</span><div data-a="edit" data-id="'+d.id+'" style="cursor:pointer;min-width:0"><b>'+esc(d.name)+'</b><div class="small muted">'+sub+"</div>"+(d.renew&&b<=0.5?'<button class="btn small primary" data-a="policy" style="margin-top:6px">أضف وثيقة تأمين جديدة</button>':"")+'</div><div class="btns"><button class="btn icon small" aria-label="قدّم" data-a="up" data-id="'+d.id+'"'+(i===0?" disabled":"")+'>▲</button><button class="btn icon small" aria-label="أخّر" data-a="down" data-id="'+d.id+'"'+(i===list.length-1?" disabled":"")+">▼</button></div></div>"}).join("");
-  h+='</div></section><section class="card"><div class="card-h"><h2>المصاريف الثابتة</h2><div class="btns"><button class="btn small" data-a="add" data-k="bill">+ مصروف ثابت</button><button class="btn small" data-a="policy">+ وثيقة تأمين</button></div></div><div class="rows">';
+  h+="</div></section>";
+  {const ym=addM(ymOf(todayStr()),1),rows=[];
+   S.items.forEach(it=>{if(it.fromDaily)return;
+     if(it.kind==="bill"){if(billActive(it,ym)&&(it.freq||"monthly")==="monthly"&&num(it.amount)>0)rows.push({d:it.day,n:it.name,a:num(it.amount),id:it.id})}
+     else if(isDebt(it)&&!isPersonal(it)&&curBal(it)>0.5&&num(it.amount)>0&&!(it.start&&ym<it.start)){const ds=it.split&&it.split.days||[it.day];ds.forEach(x=>rows.push({d:x,n:it.name,a:num(it.amount)/ds.length,id:it.id,debt:true}))}});
+   rows.sort((a,b)=>a.d-b.d);
+   if(rows.length)h+='<section class="card"><div class="card-h"><h2>الالتزامات الشهرية حسب يوم الاستحقاق</h2><span class="small muted">'+M(sum(rows,r=>r.a))+' بالشهر</span></div><div class="rows">'+rows.map(r=>'<div class="row tap" data-a="edit" data-id="'+r.id+'"><div class="when"><b class="num">'+r.d+'</b>يوم</div><div class="what"><div>'+esc(r.n)+'</div><div class="chips"><span class="chip '+(r.debt?"min":"")+'">'+(r.debt?"قسط دين":"مصروف ثابت")+'</span></div></div><div class="amt">'+M(r.a)+"</div></div>").join("")+'</div><p class="small muted">الشهر العادي. الشهور اللي فيها مبالغ أو تواريخ مختلفة (مثل متأخرات الإيجار) تلقاها بتواريخها في تبويب الخطة.</p></section>'}
+  h+='<section class="card"><div class="card-h"><h2>المصاريف الثابتة</h2><div class="btns"><button class="btn small" data-a="add" data-k="bill">+ مصروف ثابت</button><button class="btn small" data-a="policy">+ وثيقة تأمين</button></div></div><div class="rows">';
   const fq={monthly:"كل شهر",bimonthly:"كل شهرين",yearly:"كل سنة",once:"مرة واحدة"};
   h+=bills.map(b=>'<div class="row tap" data-a="edit" data-id="'+b.id+'"><div class="when"><b class="num">'+(b.fromDaily?"—":b.day)+"</b>"+(b.fromDaily?"ميزانية":"يوم")+'</div><div class="what"><div>'+esc(b.name)+'</div><div class="small muted">'+fq[b.freq||"monthly"]+(b.start?" · من "+mName(b.start):"")+(b.end?" · لين "+mName(b.end):"")+(b.fromDaily?" · تنخصم من خانة الأكل في اليومية":"")+'</div></div><div class="amt">'+M(b.amount)+"</div></div>").join("")||'<div class="empty">ما فيه مصاريف ثابتة.</div>';
   const F=S.settings.fund||{};
@@ -1192,19 +1226,21 @@ const CRES={"":"— بدون نتيجة محددة —",agree:"وافقوا عل
 function contactsCard(d){
   const t=todayStr(),cs=(S.contacts||[]).filter(c=>c.item===d.id).sort((a,b)=>a.date<b.date?1:-1),aj=(S.adjusts||[]).filter(a=>a.item===d.id).sort((a,b)=>a.date<b.date?1:-1);
   let h='<section class="card"><div class="card-h"><h2>التواصل والتفاوض</h2><div class="btns"><button class="btn small" data-a="scripts" data-id="'+d.id+'">صيغ جاهزة</button><button class="btn small" data-a="recon" data-id="'+d.id+'">طابق مع الكشف</button><button class="btn small primary" data-a="addcontact" data-id="'+d.id+'">+ سجّل اتصال</button></div></div>';
-  h+=cs.length?'<div class="rows">'+cs.map(c=>'<div class="row tap alert-row '+(c.next&&c.next<=t?"soon":"")+'" data-a="contact" data-cid="'+c.id+'"><div class="when"><b class="num">'+dDay(c.date)+"</b>"+MONTHS[+c.date.slice(5,7)-1]+'</div><div class="what"><div>'+esc(c.who||"اتصال")+(c.res?" · "+CRES[c.res]:"")+'</div><div class="small" style="font-weight:400">'+esc(c.what||"")+'</div><div class="chips">'+(c.next?'<span class="chip '+(c.next<=t?"late":"")+'">متابعة '+dLabel(c.next)+"</span>":"")+"</div></div><div></div></div>").join("")+"</div>":'<p class="small muted">سجّل كل اتصال معهم: مع مين تكلمت، وش قالوا، ووش وعدوك. لو اختلفتوا لاحقاً أو وصل الموضوع للقضاء، هذا السجل يثبت كلامك. ولما تختار النتيجة (وافقوا، عرضوا تسوية...) التطبيق يحدّث حالة الدين لحاله.</p>';
+  if(d.rule)h+='<div class="note warn">'+esc(d.rule)+"</div>";
+  if((d.info||[]).length)h+='<div class="tablewrap"><table><tbody>'+d.info.map(r=>'<tr><td class="muted">'+esc(r[0])+"</td><td>"+esc(r[1])+"</td></tr>").join("")+"</tbody></table></div>";
+  h+=cs.length?'<div class="rows">'+cs.map(c=>'<div class="row tap alert-row '+(c.next&&c.next<=t?"soon":"")+'" data-a="contact" data-cid="'+c.id+'"><div class="when"><b class="num">'+dDay(c.date)+"</b>"+MONTHS[+c.date.slice(5,7)-1]+'</div><div class="what"><div>'+esc(c.who||"اتصال")+(c.res?" · "+CRES[c.res]:"")+'</div><div class="small" style="font-weight:400">'+esc(c.what||"")+'</div><div class="chips">'+(c.next?'<span class="chip '+(c.next<=t?"late":"")+'">متابعة '+dLabel(c.next)+"</span>":"")+(c.todo?'<span class="chip moved">مهمة معلّقة</span>':"")+"</div></div><div></div></div>").join("")+"</div>":'<p class="small muted">سجّل كل اتصال معهم: مع مين تكلمت، وش قالوا، ووش وعدوك. لو اختلفتوا لاحقاً أو وصل الموضوع للقضاء، هذا السجل يثبت كلامك. ولما تختار النتيجة (وافقوا، عرضوا تسوية...) التطبيق يحدّث حالة الدين لحاله.</p>';
   if(aj.length)h+='<p class="small muted">آخر مطابقة مع الكشف: '+dLabel(aj[0].date)+" "+aj[0].date.slice(0,4)+" · الرصيد "+money(aj[0].bal)+" ("+(aj[0].delta>=0?"زاد ":"نقص ")+money(Math.abs(aj[0].delta))+(aj[0].delta>0?" فوائد ورسوم":"")+")</p>";
   return h+"</section>"}
 function contactSheet(itemId,cid){
   const c=cid?(S.contacts||[]).find(x=>x.id===cid):{item:itemId,date:todayStr(),who:"",what:"",next:"",res:""};if(!c)return;
   const d=byId(c.item);if(!d)return;
-  openSheet("<h2>"+(cid?"اتصال ":"سجّل اتصال: ")+esc(d.name)+'</h2><form><div class="fields">'+field("التاريخ","date",c.date,"date")+'<div class="field"><label for="f_who">مع مين (الاسم أو القسم)</label><input id="f_who" name="who" value="'+esc(c.who)+'"></div></div><div class="field"><label for="f_what">وش صار؟ وش قالوا ووش وعدوا؟</label><textarea id="f_what" name="what" rows="3">'+esc(c.what)+'</textarea></div><div class="field"><label for="f_res">النتيجة (التطبيق يحدّث حالة الدين حسبها)</label><select id="f_res" name="res">'+Object.keys(CRES).map(k=>'<option value="'+k+'"'+(c.res===k?" selected":"")+">"+CRES[k]+"</option>").join("")+'</select></div><div class="fields">'+field("مبلغ التسوية (لو عرضوا)","samt",c.samt||"")+field("موعد المتابعة أو انتهاء العرض","next",c.next||"","date")+"</div>"+actionsRow("حفظ",cid?'<button type="button" class="btn danger" id="delC">حذف</button>':"")+"</form>",fd=>{
+  openSheet("<h2>"+(cid?"اتصال ":"سجّل اتصال: ")+esc(d.name)+'</h2><form><div class="fields">'+field("التاريخ","date",c.date,"date")+'<div class="field"><label for="f_who">مع مين (الاسم أو القسم)</label><input id="f_who" name="who" value="'+esc(c.who)+'"></div></div><div class="field"><label for="f_what">وش صار؟ وش قالوا ووش وعدوا؟</label><textarea id="f_what" name="what" rows="3">'+esc(c.what)+'</textarea></div><div class="field"><label for="f_res">النتيجة (التطبيق يحدّث حالة الدين حسبها)</label><select id="f_res" name="res">'+Object.keys(CRES).map(k=>'<option value="'+k+'"'+(c.res===k?" selected":"")+">"+CRES[k]+"</option>").join("")+'</select></div><div class="fields">'+field("مبلغ التسوية (لو عرضوا)","samt",c.samt||"")+field("موعد المتابعة أو انتهاء العرض","next",c.next||"","date")+'</div><label class="check"><input type="checkbox" name="todo"'+(c.todo?" checked":"")+"> مهمة معلّقة: تبقى في التنبيهات لين أشيل العلامة</label>"+actionsRow("حفظ",cid?'<button type="button" class="btn danger" id="delC">حذف</button>':"")+"</form>",fd=>{
     if(!fd.date)return false;
     const x=cid?c:{id:uid(),item:c.item};
-    Object.assign(x,{date:fd.date,who:fd.who.trim(),what:fd.what.trim(),res:fd.res,samt:num(fd.samt)||null,next:fd.next||""});
+    Object.assign(x,{date:fd.date,who:fd.who.trim(),what:fd.what.trim(),res:fd.res,samt:num(fd.samt)||null,next:fd.next||"",todo:!!fd.todo});
     if(!cid){S.contacts=S.contacts||[];S.contacts.push(x)}
     let extra="";
-    if(!isPersonal(d)){
+    if(isDebt(d)&&!isPersonal(d)){
       if(fd.res==="agree"){d.agreed=true;extra=" · صار الدين عليه اتفاقية"}
       else if(fd.res==="cancel"){d.agreed=false;extra=" · صار الدين بدون اتفاقية"}
       else if(fd.res==="settle"&&num(fd.samt)>0){d.settle=num(fd.samt);d.settleUntil=fd.next||"";extra=" · انضاف عرض التسوية "+money(fd.samt)}}
@@ -1276,7 +1312,7 @@ function itemSheet(id,kind){
     if(bill){x.amount=num(fd.amount);if(!x.fromDaily)x.day=Math.min(31,Math.max(1,Math.round(num(fd.day))||1));x.freq=fd.freq;x.start=fd.start||ym;x.end=fd.end||null}
     else if(goal){x.target=num(fd.target);x.save=!!fd.save}
     else if(pers){if(!fd.due){toast("حدد التاريخ");return false}x.due=fd.due;x.balance=num(fd.cur)+(isNew?0:paidBy(x.id))}
-    else{x.amount=num(fd.amount);x.day=Math.min(31,Math.max(1,Math.round(num(fd.day))||1));x.start=fd.start||null;x.balance=num(fd.cur)+(isNew?0:paidBy(x.id))}
+    else{if(num(fd.amount)!==num(x.amount))delete x.steps;if(Math.round(num(fd.day))!==num(x.day))delete x.split;x.amount=num(fd.amount);x.day=Math.min(31,Math.max(1,Math.round(num(fd.day))||1));x.start=fd.start||null;x.balance=num(fd.cur)+(isNew?0:paidBy(x.id))}
     if(x.kind==="debt"){x.risk=+fd.risk||2;if(!isPersonal(x)){if(num(fd.rate)!==num(x.rate))x.rateEst=false;x.rate=num(fd.rate)||null;x.agreed=fd.agr==="1";x.legal=!!fd.legal;x.deadline=fd.deadline||"";x.settle=num(fd.settle)||null;x.settleUntil=fd.settleUntil||""}}
     if(isNew){S.items.push(x);if(!bill)S.order.push(x.id)}
     done(isNew?"انضاف":"انحفظ")});
@@ -1381,7 +1417,7 @@ document.addEventListener("click",e=>{
     case"testnotify":toast(Native.test()?"وصلك تنبيه تجريبي؟ إذا لا، فعّل الإشعارات للتطبيق من الإعدادات":"التنبيهات تشتغل في التطبيق على التابلت");break;
     case"export":exportData();break;
     case"import":importData();break;
-    case"reset":confirmSheet("ترجع للخطة الأصلية؟ تنحذف كل اليوميات والدفعات والتعديلات.","رجوع للأصل",()=>{S=defaultState();done("رجعت الخطة الأصلية")});break;
+    case"reset":confirmSheet("ترجع للخطة الأصلية؟ تنحذف كل اليوميات والدفعات والتعديلات.","رجوع للأصل",()=>{S=defaultState();migrate();applyRef();done("رجعت الخطة الأصلية")});break;
     case"rep":e.preventDefault();repMode=el.dataset.v;if(location.hash!=="#reports")location.hash="reports";else render();break;
     case"range":repRange=el.dataset.v;render();break}});
 window.addEventListener("focus",()=>{if(!$("#sheetRoot .sheet"))render()});
@@ -1392,7 +1428,9 @@ document.addEventListener("visibilitychange",()=>{if(!document.hidden)syncNow(fa
 window.addEventListener("online",()=>{render();syncNow(false)});
 window.addEventListener("offline",()=>{if(!$("#sheetRoot .sheet"))render()});
 document.addEventListener("visibilitychange",()=>{if(document.hidden)hiddenAt=Date.now();else if(hiddenAt&&Date.now()-hiddenAt>120000)lockNow()});
-migrate();PREV=recIndex(S);
+const P0=recIndex(S);migrate();
+/* the new framework is stamped as a fresh change so it wins when the two devices merge */
+if(applyRef()){PREV=P0;persist()}else PREV=recIndex(S);
 lockNow();
 render();
 syncNow(false);
