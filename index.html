@@ -233,7 +233,7 @@ const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 const num=v=>{const n=parseFloat(String(v??"").replace(/,/g,""));return isFinite(n)?n:0};
 const sum=(a,f)=>a.reduce((s,x)=>s+f(x),0);
 const FUND="صندوق السداد";
-const APPV="2.0.1";
+const APPV="2.0.2";
 const TAX="مخصص الضريبة";
 
 /* ---------- storage + phone features (Android bridge, browser fallback) ---------- */
@@ -259,6 +259,8 @@ const Native={
 const LIVING={id:"living",kind:"bill",name:"المعيشة: أكل وشرب",amount:500,day:28,freq:"monthly",start:"2000-01",end:null,fromDaily:true};
 const REPAIR={id:"goal1",kind:"goal",name:"هدف",target:0};
 const RATE0={};
+/* cards sent to collections: interest is frozen, so none is added */
+const FROZEN0={};
 const TAX0={pct:0,start:""};
 const SAVE0=[];
 function defaultState(){return{
@@ -282,6 +284,7 @@ function migrate(){
     S.contacts=S.contacts||[];S.adjusts=S.adjusts||[];
     SAVE0.forEach(g=>{if(!S.items.some(i=>i.id===g.id)){S.items.push({...g});S.order.push(g.id)}});
     S.v=6}
+  if(S.v<7){S.items.forEach(it=>{if(FROZEN0[it.id]&&it.rateEst){it.rate=null;it.rateEst=false}});S.v=7}
   Store.save(S)}
 /* every record remembers when it last changed (or was deleted), so two devices that worked apart can be merged without losing either side */
 let PREV={};
