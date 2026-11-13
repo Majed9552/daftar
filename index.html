@@ -236,7 +236,7 @@ const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 const num=v=>{const n=parseFloat(String(v??"").replace(/,/g,""));return isFinite(n)?n:0};
 const sum=(a,f)=>a.reduce((s,x)=>s+f(x),0);
 const FUND="صندوق السداد";
-const APPV="2.2.1",APPN=221;
+const APPV="2.2.2",APPN=222;
 const TAX="مخصص الضريبة";
 
 /* ---------- storage + phone features (Android bridge, browser fallback) ---------- */
@@ -450,7 +450,20 @@ function biDates(it,ym){
   return out}
 /* a debt paid in two halves each month (for example the 10th and the 20th) */
 const splitDays=(it,ym)=>{const o=ovOf(it.id,ym);return it.split&&it.split.days&&ym>=(it.split.from||"")&&!(o&&o.day!=null)?it.split.days:null};
-function plannedFor(it,ym){const o=ovOf(it.id,ym);return o&&o.amount!=null?num(o.amount):defaultPlanned(it,ym)}
+function planned0(it,ym){const o=ovOf(it.id,ym);return o&&o.amount!=null?num(o.amount):defaultPlanned(it,ym)}
+/* each installment of a debt in a month, as its own dated part; a part can be pushed to a later date (S.moves) */
+function baseParts(it,ym){
+  const p0=planned0(it,ym);if(p0<=0.005)return[];
+  const bd=biDates(it,ym);if(bd&&bd.length)return bd.map(d=>({date:d,orig:d,amount:num(it.bi.amount)}));
+  const sd=splitDays(it,ym);if(sd)return sd.map(x=>({date:dateIn(ym,x),orig:dateIn(ym,x),amount:p0/sd.length}));
+  const d=dateIn(ym,dayFor(it,ym));return[{date:d,orig:d,amount:p0}]}
+function partsOf(it,ym){
+  const mv=S.moves||{},out=[];
+  baseParts(it,ym).forEach(p=>{const m=mv[it.id+"|"+p.orig];if(!m)out.push(p);else if(ymOf(m)===ym)out.push({...p,date:m,moved:true})});
+  Object.keys(mv).forEach(k=>{const i=k.lastIndexOf("|");if(k.slice(0,i)!==it.id)return;const od=k.slice(i+1),nd=mv[k];if(ymOf(nd)!==ym||ymOf(od)===ym)return;const bp=baseParts(it,ymOf(od)).find(p=>p.orig===od);if(bp)out.push({...bp,date:nd,moved:true})});
+  return out.sort((a,b)=>a.date<b.date?-1:1)}
+const hasMoves=it=>{const mv=S.moves;if(!mv)return false;for(const k in mv)if(k.startsWith(it.id+"|"))return true;return false};
+function plannedFor(it,ym){return isDebt(it)&&!isPersonal(it)&&hasMoves(it)?sum(partsOf(it,ym),p=>p.amount):planned0(it,ym)}
 const dayFor=(it,ym)=>{const o=ovOf(it.id,ym);return o&&o.day!=null?o.day:it.day};
 const nextTarget=()=>S.order.map(byId).find(it=>it&&inQueue(it)&&curBal(it)>0.5)||null;
 
@@ -542,8 +555,8 @@ function simulate(o){
       const id=it.id;if(bal[id]<=0.5)continue;
       if(isPersonal(it)){const dueYm=ymOf(it.due||dateIn(cur,28));if(dueYm===ym||(first&&dueYm<cur))lines.push(mk(it,"full",bal[id],it.due,dueYm));continue}
       const ov=ovOf(id,ym),amt=Math.min(bal[id],Math.max(0,plannedFor(it,ym)-paidIn(id,ym)));
-      const bd=amt>0.5?biDates(it,ym):null,sp0=amt>0.5&&!bd?splitDays(it,ym):null,sd=bd&&bd.length?bd:sp0?sp0.map(x=>dateIn(ym,x)):null;
-      if(sd){const share=plannedFor(it,ym)/sd.length;let left=amt;const parts=[];for(let i=sd.length-1;i>=0;i--){const x=Math.min(share,left);left-=x;if(x>0.5)parts.unshift(mk(it,"min",x,sd[i],ym))}parts.forEach(x=>lines.push(x))}
+      const sd=amt>0.5?partsOf(it,ym):[];
+      if(sd.length){let left=amt;const parts=[];for(let i=sd.length-1;i>=0;i--){const x=Math.min(sd[i].amount,left);left-=x;if(x>0.5)parts.unshift(mk(it,"min",x,sd[i].date,ym,{orig:sd[i].orig,moved:!!sd[i].moved}))}parts.forEach(x=>lines.push(x))}
       else if(amt>0.5||(ov&&ov.amount===0&&defaultPlanned(it,ym)>0))lines.push(mk(it,"min",amt,dateIn(ym,dayFor(it,ym)),ym,{skipped:amt<=0.5}))}
     S.planned.forEach(p=>{const it=byId(p.item);if(!it||bal[it.id]<=0.5)return;const pm=ymOf(p.date);if(pm===ym||(first&&pm<cur))lines.push(mk(it,"exc",Math.min(num(p.amount),bal[it.id]),p.date,pm,{pid:p.id}))});
     const kindRank={bill:0,full:1,min:2,exc:3,budget:4,tax:5};
@@ -718,7 +731,7 @@ function lineChips(l,t,cur){
   else if(l.kind==="bill")c+='<span class="chip">مصروف ثابت</span>';
   else if(l.kind==="tax")c+='<span class="chip exc">تجنيب '+num(taxCfg().pct)+"% من الدخل</span>"+(l.for===cur&&taxShort()>0.5?'<span class="chip">لين اليوم '+money(taxShort())+"</span>":"");
   else if(l.kind==="budget")c+='<span class="chip">ميزانية '+money(l.budget)+'</span><span class="chip">صرفت '+money(l.spent)+" من اليوميات</span>"+(l.spent>l.budget+0.5?'<span class="chip short">زادت '+money(l.spent-l.budget)+"</span>":"");
-  else if(l.kind==="min")c+='<span class="chip min">قسط '+l.no+" من "+l.total+(l.thenClose?" + إقفال":"")+"</span>"+((byId(l.item)||{}).critical?'<span class="chip late">حرج: لا تفوّت</span>':"");
+  else if(l.kind==="min")c+='<span class="chip min">قسط '+l.no+" من "+l.total+(l.thenClose?" + إقفال":"")+"</span>"+((byId(l.item)||{}).critical?'<span class="chip late">حرج: لا تفوّت</span>':"")+(l.moved?'<span class="chip moved">مؤجّل من '+dLabel(l.orig)+"</span>":"");
   else if(l.kind==="full")c+='<span class="chip full">دين شخصي · دفعة كاملة</span>';
   else if(l.kind==="exc")c+='<span class="chip exc">دفعة استثنائية</span>';
   else if(l.kind==="close")c+='<span class="chip fund">إقفال من الصندوق</span>';
@@ -1144,6 +1157,7 @@ function lineSheet(l){
   else menu+='<button class="btn primary" data-a="pay">سجّلت الدفع</button>';
   if(l.kind==="full")menu+='<button class="btn" data-a="pdate">غيّر تاريخ الدفعة</button><button class="btn" data-a="pnext">انقلها كاملة للشهر الجاي</button>';
   else if(l.kind==="exc")menu+='<button class="btn" data-a="eamt">غيّر المبلغ</button><button class="btn" data-a="edate">غيّر التاريخ</button><button class="btn danger" data-a="edel">احذف هذي الدفعة</button>';
+  else if(l.kind==="min"&&l.orig)menu+=(it.bi?"":'<button class="btn" data-a="amt">غيّر المبلغ لهذا الشهر</button>')+'<button class="btn" data-a="mvnext">أجّل هذا القسط للشهر الجاي</button><button class="btn" data-a="mvdate">أجّله لتاريخ محدد</button>'+(l.moved?'<button class="btn" data-a="mvclear">ألغِ التأجيل (يرجع '+dLabel(l.orig)+")</button>":"")+(ovOf(l.item,ym)?'<button class="btn" data-a="clearov">رجّعها مثل ما كانت</button>':"");
   else if(l.kind!=="budget")menu+='<button class="btn" data-a="amt">غيّر المبلغ لهذا الشهر</button><button class="btn" data-a="day">غيّر تاريخ الدفع</button><button class="btn" data-a="defer">أجّل للشهر الجاي</button>'+(ovOf(l.item,ym)?'<button class="btn" data-a="clearov">رجّعها مثل ما كانت</button>':"");
   else if(ovOf(l.item,ym))menu+='<button class="btn" data-a="clearov">رجّعها مثل ما كانت</button>';
   if(isDebt(it))menu+='<button class="btn" data-a="report" data-id="'+it.id+'">عرض سجل هذا الدين</button>';
@@ -1151,6 +1165,8 @@ function lineSheet(l){
     (l.kind==="budget"?'<div class="note info">الميزانية تنخصم تلقائياً من خانة "الأكل والشرب" في اليومية. صرفت '+money(l.spent)+" من "+money(l.budget)+".</div>":"")+
     (l.short>0.5?'<div class="note bad">النقد المتوقع ما يغطي منها '+money(l.short)+".</div>":"")+
     (l.kind==="full"?'<div class="note info">دين شخصي: يندفع مرة وحدة كامل. ما فيه دفعات جزئية.</div>':"")+
+    (l.kind==="min"&&l.orig&&(it.agreed||it.critical)?'<div class="note warn">هذا الدين عليه اتفاقية'+(it.critical?" ودفعة فائتة تكسرها":"")+". قبل ما تأجّل كلّمهم، والتأجيل هنا ما يغيّر موعدهم.</div>":"")+
+    (l.kind==="min"&&l.orig&&!(it.agreed||it.critical)&&num(it.rate)>0?'<div class="note info">التأجيل يرحّل القسط فقط. الفائدة تستمر، والدائن ممكن يحسب رسوم تأخير.</div>':"")+
     '<div class="menu">'+menu+'<button class="btn" data-a="close">إغلاق</button></div>');
   $("#sheetRoot .menu").addEventListener("click",e=>{const a=e.target.closest("button")?.dataset.a;if(!a||a==="close"||a==="report")return;e.stopPropagation();
     const target=ym<ymOf(t)?addM(ymOf(t),1):addM(ym,1);
@@ -1158,6 +1174,9 @@ function lineSheet(l){
     else if(a==="amt")openSheet("<h2>"+(l.kind==="budget"?"ميزانية ":"مبلغ ")+esc(l.name)+" في "+mName(ym)+"</h2><form>"+field("المبلغ","v",Math.round(l.kind==="budget"?l.budget:l.amount))+(isDebt(it)?'<p class="small muted">الفرق ينعكس على رصيد الدين وعدد الأقساط الباقية.</p>':"")+actionsRow()+"</form>",fd=>{setOv(l.item,ym,{amount:l.kind==="budget"?Math.max(0,num(fd.v)):paidIn(l.item,ym)+Math.max(0,num(fd.v))});done("تعدّل المبلغ")});
     else if(a==="day")openSheet("<h2>تاريخ دفع "+esc(l.name)+"</h2><form>"+field("التاريخ","v",l.date,"date",'min="'+ym+'-01" max="'+dateIn(ym,31)+'"')+'<p class="small muted">لنقلها لشهر ثاني استخدم "أجّل للشهر الجاي".</p>'+actionsRow()+"</form>",fd=>{if(!fd.v||ymOf(fd.v)!==ym){toast("اختر يوم داخل "+mName(ym));return false}setOv(l.item,ym,{day:dDay(fd.v)});done("تغيّر التاريخ")});
     else if(a==="defer"){const nxt=plannedFor(it,target);setOv(l.item,ym,{amount:paidIn(l.item,ym)});setOv(l.item,target,{amount:nxt+l.amount});done("انتقلت "+money(l.amount)+" إلى "+mName(target))}
+    else if(a==="mvnext"){const b=l.date<t?t:l.date,nd=dateIn(addM(ymOf(b),1),dDay(l.date));S.moves=S.moves||{};S.moves[l.item+"|"+l.orig]=nd;done("تأجّل القسط إلى "+dLabel(nd)+" "+nd.slice(0,4))}
+    else if(a==="mvdate")openSheet("<h2>أجّل قسط "+esc(l.name)+'</h2><p class="small muted">القسط '+money(l.amount)+" كان موعده "+dLabel(l.orig)+". اختر التاريخ الجديد.</p><form>"+field("التاريخ الجديد","v",l.date<t?t:l.date,"date",'min="'+t+'"')+actionsRow("أجّل")+"</form>",fd=>{if(!fd.v||fd.v<t){toast("اختر تاريخ من اليوم وطالع");return false}S.moves=S.moves||{};S.moves[l.item+"|"+l.orig]=fd.v;done("تأجّل القسط إلى "+dLabel(fd.v)+" "+fd.v.slice(0,4))});
+    else if(a==="mvclear"){if(S.moves)delete S.moves[l.item+"|"+l.orig];done("رجع القسط لموعده "+dLabel(l.orig))}
     else if(a==="clearov"){delete S.overrides[l.item+"|"+ym];done("رجعت مثل ما كانت")}
     else if(a==="pdate")openSheet("<h2>تاريخ دفعة "+esc(l.name)+"</h2><form>"+field("التاريخ","v",it.due,"date")+actionsRow()+"</form>",fd=>{if(!fd.v)return false;it.due=fd.v;done("تغيّر التاريخ: "+dLabel(fd.v))});
     else if(a==="pnext"){const d=it.due>=t?it.due:t;it.due=dateIn(addM(ymOf(d),1),dDay(it.due));done("انتقلت كاملة إلى "+dLabel(it.due)+" "+it.due.slice(0,4))}
