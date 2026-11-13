@@ -68,6 +68,7 @@ h3{font-size:15px;font-family:var(--font);font-weight:600}
 main{max-width:1040px;margin:0 auto;padding:16px max(16px,env(safe-area-inset-right)) calc(92px + env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));display:flex;flex-direction:column;gap:16px}
 .grid2{display:grid;grid-template-columns:1fr;gap:16px}
 @media (min-width:460px){.grid2{grid-template-columns:1fr 1fr}}
+@media (min-width:460px) and (max-width:700px){.home2{gap:6px}.home2 .card{padding:10px;gap:8px}.home2 .card-h h2{font-size:16px}.home2 .row{padding:6px 0;gap:6px}.home2 .row.soon,.home2 .row.over,.home2 .row.paid{padding:6px 8px}.home2 .row .when{min-width:34px;font-size:11px}.home2 .row .when b{font-size:15px}.home2 .chip{font-size:10.5px;padding:0 6px}.home2 .chip.bal{display:none}.home2 .legend{font-size:10.5px;gap:2px 8px}.home2 .big{font-size:26px}.home2 .note{padding:8px 10px}.home2 .btn{padding:9px 8px}}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;min-width:0;display:flex;flex-direction:column;gap:12px}
 .card.alert{border-color:var(--warn);background:var(--warn-soft)}
 .card.snow{border-color:var(--accent);box-shadow:inset 0 3px 0 var(--accent)}
@@ -233,7 +234,7 @@ const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 const num=v=>{const n=parseFloat(String(v??"").replace(/,/g,""));return isFinite(n)?n:0};
 const sum=(a,f)=>a.reduce((s,x)=>s+f(x),0);
 const FUND="صندوق السداد";
-const APPV="2.0.2";
+const APPV="2.0.3";
 const TAX="مخصص الضريبة";
 
 /* ---------- storage + phone features (Android bridge, browser fallback) ---------- */
@@ -677,7 +678,7 @@ function lineChips(l,t,cur){
   else if(l.kind==="lump")c+='<span class="chip fund">دفعة من الصندوق</span>';
   else if(l.kind==="goal")c+='<span class="chip fund">من الصندوق للهدف</span>';
   if(FUNDK.has(l.kind))c+=(l.for===cur&&fundReady()&&fundReady().id===l.item?'<span class="chip done">جاهز الحين</span>':'<span class="chip">متوقع</span>');
-  if(l.balAfter!=null&&!l.skipped&&l.kind!=="goal")c+='<span class="chip">الباقي بعدها '+money(l.balAfter)+"</span>";
+  if(l.balAfter!=null&&!l.skipped&&l.kind!=="goal")c+='<span class="chip bal">الباقي بعدها '+money(l.balAfter)+"</span>";
   if(l.ov&&!l.skipped&&!["full","exc","budget"].includes(l.kind)&&!FUNDK.has(l.kind))c+='<span class="chip moved">معدّل</span>';
   const st=lineState(l,t);
   if(st==="over")c+='<span class="chip late">متأخر '+diffDays(l.date,t)+" يوم</span>";
@@ -859,7 +860,7 @@ function viewHome(){
     '<div class="stat acc"><span>صندوق السداد</span><b>'+M(fundBal())+"</b></div>"+
     '<div class="stat '+(m0.draw>0.5?"bad":"good")+'"><span>'+(m0.draw>0.5?"عجز متوقع آخر الشهر":"للصندوق آخر الشهر (متوقع)")+"</span><b>"+M(m0.draw>0.5?m0.draw:m0.toFund)+"</b></div></div>";
 
-  h+='<div class="grid2"><section class="card"><div class="card-h"><h2>اليوم والشهر</h2><span class="chip">'+left+" يوم باقي في "+MONTHS[+ym.slice(5,7)-1]+"</span></div>";
+  h+='<div class="grid2 home2"><section class="card"><div class="card-h"><h2>اليوم والشهر</h2><span class="chip">'+left+" يوم باقي في "+MONTHS[+ym.slice(5,7)-1]+"</span></div>";
   const ahead=mtd.got-mtd.expected,pw=perWorkday(ym);
   h+='<div><div class="big">'+M(Math.round(pw))+' <span class="small muted">هدفك ليوم الشغل (صافي بعد البنزين)</span></div><p class="small muted">'+(S.settings.incomeByMonth[ym]!=null?"دخل "+MONTHS[+ym.slice(5,7)-1]+" المخطط "+money(expectedMonth(ym)):"خطتك "+money(S.settings.dailyAvg)+" × "+S.settings.workdays+" يوم = "+money(planMonthly())+" بالشهر")+"</p></div>";
   h+='<div><div class="kv"><span>هذا الشهر لين اليوم</span><span>'+M(mtd.got)+" من "+M(mtd.expected)+' متوقع</span></div><div class="bar" style="margin-top:6px"><i style="width:'+Math.min(100,mtd.expected?mtd.got/Math.max(1,expectedMonth(ym))*100:0).toFixed(1)+'%"></i></div>'+(mtd.elapsed>0?'<p class="small" style="margin-top:6px;color:'+(ahead>=0?"var(--good)":"var(--bad)")+'">'+(ahead>=0?"متقدم على خطتك بـ ":"متأخر عن خطتك بـ ")+M(Math.abs(ahead))+"</p>":"")+"</div>";
