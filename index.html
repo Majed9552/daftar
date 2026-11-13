@@ -182,6 +182,12 @@ svg [data-a=drill]:hover rect{opacity:.88}
 .sheet .menu{display:flex;flex-direction:column;gap:8px}
 .sheet .menu .btn{text-align:right}
 .toast{position:fixed;z-index:30;bottom:calc(84px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-weight:600;font-size:14px;max-width:90%;text-align:center}
+#lock{position:fixed;inset:0;z-index:100;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;padding:24px}
+#lock form{width:100%;max-width:300px;align-items:stretch;text-align:center;gap:14px}
+#lock h2{font-size:24px}
+#lock input{border:0;border-radius:12px;padding:14px;font-size:24px;text-align:center;letter-spacing:8px;background:rgb(255 255 255/.92);color:#14201C;direction:ltr}
+#lock .btn{background:rgb(255 255 255/.18);border-color:rgb(255 255 255/.5);color:inherit}
+.field textarea{min-height:0;line-height:1.5}
 .empty{padding:18px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:10px}
 .big{font-size:28px;font-weight:700;line-height:1.1}
 .kv{display:flex;justify-content:space-between;gap:10px;font-size:13.5px}
@@ -227,7 +233,8 @@ const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 const num=v=>{const n=parseFloat(String(v??"").replace(/,/g,""));return isFinite(n)?n:0};
 const sum=(a,f)=>a.reduce((s,x)=>s+f(x),0);
 const FUND="صندوق السداد";
-const APPV="1.8.2";
+const APPV="2.0";
+const TAX="مخصص الضريبة";
 
 /* ---------- storage + phone features (Android bridge, browser fallback) ---------- */
 const KEY="sadad-v1";
@@ -251,6 +258,9 @@ const Native={
 /* ---------- starting plan (the numbers from our conversation) ---------- */
 const LIVING={id:"living",kind:"bill",name:"المعيشة: أكل وشرب",amount:500,day:28,freq:"monthly",start:"2000-01",end:null,fromDaily:true};
 const REPAIR={id:"goal1",kind:"goal",name:"هدف",target:0};
+const RATE0={};
+const TAX0={pct:0,start:""};
+const SAVE0=[];
 function defaultState(){return{
   v:5,startDate:todayStr(),startCash:0,
   settings:{dailyAvg:200,workdays:26,incomeByMonth:{},incomeMode:"plan",fund:{mode:"close",chunk:2000,keep:500,day:28}},
@@ -265,10 +275,17 @@ function migrate(){
   if(S.v<5){
     S.items.forEach(it=>{if(it.kind!=="debt")return;if(it.risk==null)it.risk=riskOf(it);if(it.dtype!=="personal"){if(it.agreed==null)it.agreed=agreedOf(it);if(it.legal==null)it.legal=legalOf(it);if(it.deadline===undefined)it.deadline=rawDead(it)}});
     S.v=5}
+  if(S.v<6){
+    /* interest rates start as estimates until you correct them from your statements */
+    S.items.forEach(it=>{if(it.kind==="debt"&&it.dtype!=="personal"&&!(num(it.rate)>0)&&RATE0[it.id]){it.rate=RATE0[it.id];it.rateEst=true}});
+    if(!S.settings.tax)S.settings.tax={...TAX0};
+    S.contacts=S.contacts||[];S.adjusts=S.adjusts||[];
+    SAVE0.forEach(g=>{if(!S.items.some(i=>i.id===g.id)){S.items.push({...g});S.order.push(g.id)}});
+    S.v=6}
   Store.save(S)}
 /* every record remembers when it last changed (or was deleted), so two devices that worked apart can be merged without losing either side */
 let PREV={};
-const recObjs=st=>{const m={};Object.keys(st.entries||{}).forEach(k=>m["e:"+k]=st.entries[k]);(st.payments||[]).forEach(x=>m["p:"+x.id]=x);(st.planned||[]).forEach(x=>m["pl:"+x.id]=x);(st.reserves||[]).forEach(x=>m["r:"+x.id]=x);(st.items||[]).forEach(x=>m["i:"+x.id]=x);return m};
+const recObjs=st=>{const m={};Object.keys(st.entries||{}).forEach(k=>m["e:"+k]=st.entries[k]);(st.payments||[]).forEach(x=>m["p:"+x.id]=x);(st.planned||[]).forEach(x=>m["pl:"+x.id]=x);(st.reserves||[]).forEach(x=>m["r:"+x.id]=x);(st.items||[]).forEach(x=>m["i:"+x.id]=x);(st.contacts||[]).forEach(x=>m["c:"+x.id]=x);(st.adjusts||[]).forEach(x=>m["a:"+x.id]=x);return m};
 const recIndex=st=>{const o=recObjs(st),m={};Object.keys(o).forEach(k=>m[k]=JSON.stringify(o[k]));return m};
 function stampChanges(){
   const now=Date.now(),cur=recIndex(S);S.stamp=S.stamp||{};S.tomb=S.tomb||{};
@@ -288,12 +305,16 @@ function mergeStates(L,R){
     delete tomb[k];keep[k]=pick;if(st>0)stamp[k]=st});
   out.entries={};Object.keys(keep).filter(k=>k.startsWith("e:")).sort().forEach(k=>out.entries[k.slice(2)]=keep[k]);
   const arr=(pre,name)=>{const seen=new Set(),res=[];(newer[name]||[]).concat(older[name]||[]).forEach(x=>{const k=pre+x.id;if(keep[k]&&!seen.has(k)){seen.add(k);res.push(keep[k])}});return res};
-  out.payments=arr("p:","payments");out.planned=arr("pl:","planned");out.reserves=arr("r:","reserves");out.items=arr("i:","items");
+  out.payments=arr("p:","payments");out.planned=arr("pl:","planned");out.reserves=arr("r:","reserves");out.items=arr("i:","items");out.contacts=arr("c:","contacts");out.adjusts=arr("a:","adjusts");
   const ids=new Set(out.items.filter(i=>i.kind==="debt"||i.kind==="goal").map(i=>i.id));
   out.order=(out.order||[]).filter(id=>ids.has(id));ids.forEach(id=>{if(!out.order.includes(id))out.order.push(id)});
   out.closed=Object.assign({},older.closed||{},newer.closed||{});
   out.stamp=stamp;out.tomb=tomb;out.updatedAt=Math.max(lu,ru);return out}
-function persist(){S.updatedAt=Date.now();stampChanges();if(!Store.save(S))toast("ما قدرت أحفظ — جرّب مرة ثانية");queueSync()}
+/* a copy of your data is kept on this device for each of the last 7 days */
+const SNAP="sadad-snap-";let snapAt=0;
+function snapKeys(){const ks=[];try{for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k&&k.startsWith(SNAP))ks.push(k)}}catch(e){}return ks.sort()}
+function snapSave(){const k=SNAP+todayStr();try{if(Date.now()-snapAt<600000&&localStorage.getItem(k))return;localStorage.setItem(k,JSON.stringify(S));snapAt=Date.now();snapKeys().slice(0,-7).forEach(x=>localStorage.removeItem(x))}catch(e){}}
+function persist(){snapSave();S.updatedAt=Date.now();stampChanges();if(!Store.save(S))toast("ما قدرت أحفظ — جرّب مرة ثانية");queueSync()}
 
 /* ---------- sync between your devices through your own private GitHub repo ---------- */
 const SYNCKEY="sadad-sync";
@@ -346,7 +367,14 @@ const isDebt=it=>!!it&&it.kind==="debt";
 const isPersonal=it=>isDebt(it)&&it.dtype==="personal";
 const isGoal=it=>!!it&&it.kind==="goal";
 const inQueue=it=>isGoal(it)||(isDebt(it)&&!isPersonal(it));
-const goalLeft=g=>Math.max(0,num(g.target)-paidBy(g.id));
+const isSave=it=>isGoal(it)&&!!it.save;
+const goalLeft=g=>Math.max(0,num(g.target)-(g.save?resOf("save:"+g.id):paidBy(g.id)));
+const purposeName=k=>{if(String(k).startsWith("save:")){const g=byId(k.slice(5));return "ادخار: "+(g?g.name:"هدف محذوف")}return k};
+/* money leaves the payoff fund: to a debt or a one-off goal as a payment, or into a savings pot that stays yours */
+function fundPay(it,x,d,extra){
+  S.reserves.push({id:uid(),date:d,amount:x,kind:"out",purpose:FUND,note:it.name});
+  if(isSave(it)){S.reserves.push({id:uid(),date:d,amount:x,kind:"in",purpose:"save:"+it.id});return null}
+  const pay=Object.assign({id:uid(),item:it.id,amount:x,date:d,note:"من صندوق السداد",ptype:"exceptional",closeFund:true},extra||{});S.payments.push(pay);return pay}
 const netOf=e=>num(e.inc)-num(e.fuel)-num(e.food)-num(e.other);
 const forYm=p=>p.for||ymOf(p.date);
 const livingItem=()=>S.items.find(i=>i.fromDaily);
@@ -419,7 +447,16 @@ function monthToDate(){
 /* ---------- the plan: month by month, every payment dated ----------
    o.fund: the snowball — each month's surplus goes into the payoff fund; when the fund (minus what you keep)
    covers the next debt in your order, that debt is closed in one payment and its installment joins the fund. */
-const OBL=new Set(["bill","budget","min","full","exc"]);
+const OBL=new Set(["bill","budget","min","full","exc","tax"]);
+const intNow=it=>isDebt(it)&&!isPersonal(it)&&num(it.rate)>0?curBal(it)*num(it.rate)/1200:0;
+const totalInt=sim=>sum(sim.months,m=>m.interest||0);
+/* tax set-aside: a share of what you earn (after fuel and car costs) is kept apart so next year's tax bill is already covered */
+const taxCfg=()=>S.settings.tax||{pct:0,start:""};
+const taxOn=ym=>num(taxCfg().pct)>0&&ym>=(taxCfg().start||"0000-00");
+const taxBase=e=>num(e.inc)-num(e.fuel)-num(e.other);
+const taxOwedToDate=()=>{const c=taxCfg();if(!(num(c.pct)>0))return 0;return sum(Object.keys(S.entries).filter(k=>taxOn(ymOf(k))),k=>Math.max(0,taxBase(S.entries[k])))*num(c.pct)/100};
+const taxSetAside=()=>sum(S.reserves.filter(r=>r.purpose===TAX&&r.kind!=="out"),r=>num(r.amount));
+const taxShort=()=>Math.max(0,Math.round((taxOwedToDate()-taxSetAside())*100)/100);
 const FUNDK=new Set(["close","lump","goal"]);
 function simulate(o){
   o=o||{};
@@ -444,6 +481,10 @@ function simulate(o){
     const income=first?remainingIncome(r):incomeFor(ym,r);
     const open=carry,fundOpen=fund;let avail=carry+income;
     const lines=first?overdue.map(x=>({...x})):[];
+    /* interest grows each balance before that month's payments */
+    let interest=0;const frac=first?Math.max(0,daysLeftNow())/dim(ym):1;
+    for(const it of S.items){if(!isDebt(it)||isPersonal(it))continue;const rt=num(it.rate);if(rt>0&&bal[it.id]>0.5){const x=bal[it.id]*rt/1200*frac;bal[it.id]+=x;interest+=x}}
+    if(taxOn(ym)){const amt=income*num(taxCfg().pct)/100+(first?taxShort():0);if(amt>0.5)lines.push({item:"@tax",name:TAX,kind:"tax",amount:Math.round(amt*100)/100,date:dateIn(ym,31),for:ym,ov:false})}
     for(const it of S.items){
       if(it.kind!=="bill")continue;
       const ov=ovOf(it.id,ym);if(!billActive(it,ym)&&!(ov&&ov.amount))continue;
@@ -456,12 +497,12 @@ function simulate(o){
       const ov=ovOf(id,ym),amt=Math.min(bal[id],Math.max(0,plannedFor(it,ym)-paidIn(id,ym)));
       if(amt>0.5||(ov&&ov.amount===0&&defaultPlanned(it,ym)>0))lines.push(mk(it,"min",amt,dateIn(ym,dayFor(it,ym)),ym,{skipped:amt<=0.5}))}
     S.planned.forEach(p=>{const it=byId(p.item);if(!it||bal[it.id]<=0.5)return;const pm=ymOf(p.date);if(pm===ym||(first&&pm<cur))lines.push(mk(it,"exc",Math.min(num(p.amount),bal[it.id]),p.date,pm,{pid:p.id}))});
-    const kindRank={bill:0,full:1,min:2,exc:3,budget:4};
+    const kindRank={bill:0,full:1,min:2,exc:3,budget:4,tax:5};
     lines.sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:(kindRank[a.kind]-kindRank[b.kind])||(pIdx(a.item)-pIdx(b.item)));
     for(const l of lines){
       if(l.skipped)continue;
       l.short=Math.max(0,l.amount-Math.max(0,avail));avail-=l.amount;
-      if(l.kind!=="bill"&&l.kind!=="budget"){
+      if(l.kind!=="bill"&&l.kind!=="budget"&&l.kind!=="tax"){
         const was=bal[l.item];bal[l.item]=Math.max(0,bal[l.item]-l.amount);l.balAfter=bal[l.item];
         if(l.kind==="min"){reg[l.item]++;l.no=reg[l.item]}
         if(was>0.5&&bal[l.item]<=0.5){const it=byId(l.item);events.push({ym,id:l.item,name:l.name,amount:l.amount,type:isPersonal(it)?"personal":"natural",freed:isPersonal(it)?0:num(it.amount)})}}}
@@ -478,10 +519,10 @@ function simulate(o){
         x=Math.round(x*100)/100;fund-=x;bal[it.id]=x>=need-0.5?0:Math.max(0,full-x);
         const closed=bal[it.id]<=0.5;
         lines.push(mk(it,isGoal(it)?"goal":closed?"close":"lump",x,cd,ym,{balAfter:bal[it.id],fundAfter:fund,short:0}));
-        if(closed)events.push({ym,id:it.id,name:it.name,amount:x,type:isGoal(it)?"goal":"close",freed:isDebt(it)?num(it.amount):0});
+        if(closed)events.push({ym,id:it.id,name:it.name,amount:x,type:isGoal(it)?"goal":"close",save:isSave(it),freed:isDebt(it)?num(it.amount):0});
         if(!closed)break}}
     Object.keys(bal).forEach(id=>{if(bal[id]<=0.5&&!payoff[id])payoff[id]=ym});
-    months.push({ym,income,open,fundOpen,lines,end:avail,toFund,draw,fund,short:sum(lines,l=>l.short||0),bal:{...bal}});
+    months.push({ym,income,open,fundOpen,lines,end:avail,toFund,draw,fund,interest,short:sum(lines,l=>l.short||0),bal:{...bal}});
     carry=avail;
     const pending=Object.keys(bal).some(id=>{const it=byId(id);if(!it||bal[id]<=0.5)return false;if(o.fund)return true;return isPersonal(it)||num(it.amount)>0});
     if(k>=1&&!pending&&ym>=lastPlanned)break}
@@ -489,6 +530,7 @@ function simulate(o){
   const closeYm={};events.forEach(e=>{if(e.type==="close")closeYm[e.id]=e.ym});
   months.forEach(m=>m.lines.forEach(l=>{if(l.kind==="min"&&l.no){l.total=total[l.item];l.thenClose=closeYm[l.item]||null}}));
   return{months,payoff,events,closeYm}}
+function withState(mut,fn){const bak=S;S=JSON.parse(JSON.stringify(S));try{mut(S);return fn()}finally{S=bak}}
 const debtFree=sim=>{const ds=S.items.filter(isDebt);if(ds.some(d=>!sim.payoff[d.id]))return null;return ds.map(d=>sim.payoff[d.id]).filter(p=>p!=="done").sort().pop()||"done"};
 const dfText=d=>d===null?"ما تخلص":d==="done"?"الحين":mName(d);
 
@@ -504,7 +546,7 @@ function surplusFor(ym){
 function decisionYm(){
   const t=todayStr(),cur=ymOf(t),start0=ymOf(S.startDate);
   for(let ym=start0;ym<cur;ym=addM(ym,1))if(!S.closed[ym])return ym;
-  if(dDay(t)===dim(cur)&&new Date().getHours()>=18&&!S.closed[cur])return cur;
+  if(dDay(t)===dim(cur)&&new Date().getHours()>=18&&!S.closed[cur]&&!autoOn("fund"))return cur;
   return null}
 function closeThrough(ym){for(let m=ymOf(S.startDate);m<=ym;m=addM(m,1))S.closed[m]=true}
 const fundReady=()=>{const nt=nextTarget();return nt&&fundBal()-keepAmt()>=curBal(nt)-0.5?nt:null};
@@ -526,7 +568,8 @@ function flags(it){const f=[agreedOf(it)?"اتفاقية أقساط":"بدون �
 function applySettle(it,payment,balBefore){const fg=Math.round((balBefore-num(payment.amount))*100)/100;if(fg<=0.5)return 0;payment.settle=fg;it.balance=num(it.balance)-fg;it.forgiven=num(it.forgiven)+fg;it.settle=null;it.settleUntil="";return fg}
 /* every debt gets a score out of 100 from nine criteria; the advisor proposes the top one */
 function scoreAll(room){
-  const t=todayStr(),list=S.order.map(byId).filter(it=>it&&(isDebt(it)||isGoal(it))&&curBal(it)>0.5),n=list.length;
+  const debtsLeft=S.items.some(d=>isDebt(d)&&curBal(d)>0.5);
+  const t=todayStr(),list=S.order.map(byId).filter(it=>it&&(isDebt(it)||isGoal(it))&&curBal(it)>0.5&&!(isSave(it)&&debtsLeft)),n=list.length;
   const odBy={};(SIM.months[0]?.lines||[]).forEach(l=>{if(l.kind==="min"&&!l.skipped&&l.date<t&&!odBy[l.item])odBy[l.item]=l});
   return list.map((it,i)=>{
     const bal=curBal(it),st=settleOf(it),need=st||bal,cov=Math.min(1,room/need),r=riskOf(it),od=odBy[it.id],why=[],inst=isDebt(it)&&!isPersonal(it);
@@ -542,7 +585,7 @@ function scoreAll(room){
     if(st){sc+=Math.min(1,(bal-st)/bal*2)*8;why.push("تسوية توفّر "+money(bal-st))}
     sc+=n>1?(1-i/(n-1))*5:5;
     const fr=inst?num(it.amount):0;if(fr>0){sc+=Math.min(1,fr/need*12)*4;why.push("يحرر "+money(fr)+" بالشهر")}
-    const rate=num(it.rate);if(rate>0){sc+=Math.min(1,rate/25)*3;why.push("فائدة "+rate+"%")}
+    const rate=num(it.rate);if(rate>0){sc+=Math.min(1,rate/25)*3;why.push("فائدته تكلفك "+money(bal*rate/1200)+" بالشهر")}
     return{it,bal,need,st,score:Math.round(sc),why,od,closable:need<=room+0.5}}).sort((x,y)=>y.score-x.score)}
 function advise(){
   const fb=fundBal(),room=Math.floor(fb-keepAmt());if(room<1||!SIM)return null;
@@ -570,9 +613,8 @@ function adviceSheet(){
     if(x>need+0.5){toast("المبلغ أكبر من الباقي ("+money(need)+")");return false}
     if(isPersonal(it)&&Math.abs(x-need)>0.5){toast("الدين الشخصي يندفع كامل: "+money(need));return false}
     const t=todayStr(),od=a.type==="overdue"&&it.id===a.it.id&&x<=a.line.amount+0.5;
-    S.reserves.push({id:uid(),date:t,amount:x,kind:"out",purpose:FUND,note:it.name});
-    S.payments.push(Object.assign({id:uid(),item:it.id,amount:x,date:t,note:"من صندوق السداد",ptype:od||isPersonal(it)?"regular":"exceptional",closeFund:true},od?{for:a.line.for}:{}));
-    const stl=settleOf(it),fg=stl&&x>=stl-0.5?applySettle(it,S.payments[S.payments.length-1],need):0;
+    const pay=fundPay(it,x,t,Object.assign({ptype:od||isPersonal(it)?"regular":"exceptional"},od?{for:a.line.for}:{}));
+    const stl=settleOf(it),fg=pay&&stl&&x>=stl-0.5?applySettle(it,pay,need):0;
     S.advice={bal:fundBal()};
     const closed=curBal(it)<=0.5;persist();closeSheet(true);render();
     if(fg){toast("تمت التسوية: قفلت "+it.name+" بـ "+money(x)+" وسقط عنك "+money(fg),6000);return false}
@@ -595,8 +637,9 @@ function pushReminders(){
   if(!S.entries[t])list.push({s:toDate(t,21).getTime(),m:1,t:"سجّل دخل ومصاريف اليوم ("+dLabel(t)+")"});
   const need=decisionYm(),cur=ymOf(t);
   if(need&&surplusFor(need)>0)list.push({s:Date.now()-60000,t:"قرّر وين يروح فائض "+mName(need)});
-  else if(!S.closed[cur]){const e=toDate(dateIn(cur,31),18);list.push({s:e.getTime(),t:"آخر يوم في الشهر: حوّل الفائض للصندوق"})}
+  else if(!S.closed[cur]&&!autoOn("fund")){const e=toDate(dateIn(cur,31),18);list.push({s:e.getTime(),t:"آخر يوم في الشهر: حوّل الفائض للصندوق"})}
   S.items.filter(it=>isDebt(it)&&!isPersonal(it)&&curBal(it)>0.5).forEach(it=>{const d=deadOf(it);if(d&&diffDays(t,d)<=7)list.push({s:Date.now()-60000,t:it.name+": "+(d<t?"فات الموعد النهائي ":"موعد نهائي ")+dLabel(d)});const su=settleOf(it)?it.settleUntil:"";if(su&&diffDays(t,su)<=7)list.push({s:Date.now()-60000,t:it.name+": عرض التسوية ينتهي "+dLabel(su)})});
+  (S.contacts||[]).forEach(c=>{const d=byId(c.item);if(c.next&&d&&curBal(d)>0.5&&diffDays(t,c.next)<=1)list.push({s:toDate(c.next,9).getTime(),t:"تابع مع "+d.name+(c.res==="settle"?" (عرض التسوية)":"")})});
   const fr=adviceSnoozed()?null:fundReady();if(fr)list.push({s:Date.now()-60000,t:"صندوق السداد يكفي "+(isGoal(fr)?"للهدف: ":"تقفل ")+fr.name+" ("+money(curBal(fr))+")"});
   list.sort((a,b)=>a.s-b.s);
   const json=JSON.stringify(list.slice(0,40));
@@ -622,6 +665,7 @@ function lineChips(l,t,cur){
   let c="";
   if(l.skipped)c+='<span class="chip moved">مؤجل</span>';
   else if(l.kind==="bill")c+='<span class="chip">مصروف ثابت</span>';
+  else if(l.kind==="tax")c+='<span class="chip exc">تجنيب '+num(taxCfg().pct)+"% من الدخل</span>"+(l.for===cur&&taxShort()>0.5?'<span class="chip">لين اليوم '+money(taxShort())+"</span>":"");
   else if(l.kind==="budget")c+='<span class="chip">ميزانية '+money(l.budget)+'</span><span class="chip">صرفت '+money(l.spent)+" من اليوميات</span>"+(l.spent>l.budget+0.5?'<span class="chip short">زادت '+money(l.spent-l.budget)+"</span>":"");
   else if(l.kind==="min")c+='<span class="chip min">قسط '+l.no+" من "+l.total+(l.thenClose?" + إقفال":"")+"</span>";
   else if(l.kind==="full")c+='<span class="chip full">دين شخصي · دفعة كاملة</span>';
@@ -696,6 +740,59 @@ function freedOf(m){
   return f}
 function surplusParts(m){const net=m.toFund-m.draw,fr=Math.min(freedOf(m),Math.max(0,net));return[{v:Math.max(0,net)-fr,c:"var(--accent)",n:"فرق الدخل والمصاريف"},{v:fr,c:"var(--chart-good)",n:"أقساط تحررت"},{v:Math.min(0,net),c:"var(--bad)",n:"عجز (سحب من الصندوق أو منقول)"}]}
 
+/* ---------- learning from your own days: which days and hours pay best ---------- */
+const DAYN=["الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت"];
+function incomeStats(){
+  const ks=Object.keys(S.entries).sort(),w=ks.filter(k=>num(S.entries[k].inc)>0);
+  const by=DAYN.map((n,i)=>({i,n,cnt:0,net:0,hrs:0,hnet:0}));
+  w.forEach(k=>{const e=S.entries[k],d=by[toDate(k).getDay()],x=taxBase(e);d.cnt++;d.net+=x;if(num(e.hrs)>0){d.hrs+=num(e.hrs);d.hnet+=x}});
+  by.forEach(d=>{d.avg=d.cnt?d.net/d.cnt:0;d.ph=d.hrs?d.hnet/d.hrs:0});
+  const hrs=sum(by,d=>d.hrs);
+  return{by,cnt:w.length,avg:w.length?sum(by,d=>d.net)/w.length:0,ph:hrs?sum(by,d=>d.hnet)/hrs:0,hrs}}
+const avgBetween=(a,b)=>{const ks=Object.keys(S.entries).filter(k=>k>=a&&k<=b&&num(S.entries[k].inc)>0);return ks.length>=3?sum(ks,k=>taxBase(S.entries[k]))/ks.length:null};
+function incomeTips(st){
+  const tips=[];
+  if(st.cnt<10){tips.push("سجّل "+(10-st.cnt)+" أيام شغل زيادة، والتطبيق يبدأ يحلل أي الأيام أربح لك.");return tips}
+  const ok=st.by.filter(d=>d.cnt>=2);
+  if(ok.length>=2){const useH=ok.every(d=>d.ph>0),key=useH?"ph":"avg",srt=ok.slice().sort((a,b)=>b[key]-a[key]),best=srt[0],worst=srt[srt.length-1];
+    tips.push("أربح يوم عندك "+best.n+": "+money(best[key])+(useH?" بالساعة":" باليوم")+". أضعف يوم "+worst.n+": "+money(worst[key])+".");
+    if(worst.avg<best.avg*0.75)tips.push("لو تخلي إجازتك يوم "+worst.n+" وما تفوّت "+best.n+"، تزيد تقريباً "+money((best.avg-worst.avg)*4.3)+" بالشهر.")}
+  const t=todayStr(),a=avgBetween(addDays(t,-13),t),b=avgBetween(addDays(t,-27),addDays(t,-14));
+  if(a!=null&&b!=null&&Math.abs(a-b)>=10)tips.push("آخر أسبوعين متوسط يوم الشغل "+money(a)+"، واللي قبلهم "+money(b)+": "+(a>b?"في تحسن.":"نازل، راجع أوقات شغلك."));
+  const plan=num(S.settings.dailyAvg);
+  if(Math.abs(st.avg-plan)>=15)tips.push("خطتك مبنية على "+money(plan)+" باليوم، ومتوسطك الفعلي "+money(st.avg)+". "+(st.avg<plan?"عدّل الرقم من \"ماذا لو\" عشان تواريخ الخلاص تكون صادقة.":"تقدر ترفع الخطة وتشوف التاريخ يتقدم."));
+  if(!st.hrs)tips.push("اكتب ساعات الشغل في اليومية، والتطبيق يحسب دخل الساعة ويعرف أي الأيام تستاهل تعبك.");
+  return tips}
+/* ---------- weekly review ---------- */
+const weekKey=()=>{const t=todayStr();return addDays(t,-toDate(t).getDay())};
+function weekData(){
+  const t=todayStr(),from=addDays(t,-6),ks=Object.keys(S.entries).filter(k=>k>=from&&k<=t),E=ks.map(k=>S.entries[k]);
+  const pays=S.payments.filter(p=>p.date>=from&&p.date<=t),next=[];
+  SIM.months.slice(0,2).forEach(m=>m.lines.forEach(l=>{if(OBL.has(l.kind)&&l.kind!=="budget"&&l.kind!=="tax"&&!l.skipped&&l.amount>0.5&&l.date<=addDays(t,7))next.push(l)}));
+  return{from,t,logged:ks.length,worked:E.filter(e=>num(e.inc)>0).length,inc:sum(E,e=>num(e.inc)),exp:sum(E,e=>num(e.fuel)+num(e.food)+num(e.other)),
+    work:sum(ks,k=>workMeasure(S.entries[k],ymOf(k))),planW:expectedMonth(ymOf(t))/dim(ymOf(t))*7,paid:sum(pays,p=>num(p.amount)),debtPaid:sum(pays.filter(p=>isDebt(byId(p.item))),p=>num(p.amount)),next,nextSum:sum(next,l=>l.amount)}}
+function weeklySheet(){
+  const w=weekData(),gap=w.work-w.planW,need=Math.max(0,w.nextSum-Math.max(0,freeCash())),a=advise(),tips=incomeTips(incomeStats());
+  const row=(k,v,c)=>'<div class="row"><div></div><div class="what" style="font-weight:400">'+k+'</div><div class="amt"'+(c?' style="color:'+c+'"':"")+">"+v+"</div></div>";
+  const focus=[];
+  if(w.logged<7)focus.push("ناقصك "+(7-w.logged)+" يوميات هذا الأسبوع. سجّلها ولو بصفر، لأن كل الحسابات مبنية عليها.");
+  if(need>0)focus.push("الأسبوع الجاي عليك "+money(w.nextSum)+" ونقدك المتاح "+money(Math.max(0,freeCash()))+": تحتاج "+money(Math.ceil(need/7))+" صافي باليوم عشان تغطيها.");
+  else if(w.nextSum>0)focus.push("دفعات الأسبوع الجاي ("+money(w.nextSum)+") مغطاة من نقدك الحالي.");
+  if(a&&a.type!=="keep")focus.push("الصندوق: "+a.why);
+  if(tips.length)focus.push(tips[0]);
+  openSheet('<h2>مراجعة الأسبوع</h2><p class="small muted">'+dLabel(w.from)+" إلى "+dLabel(w.t)+'</p><div class="rows">'+row("أيام اشتغلتها",w.worked+" من 7")+row("الدخل",M(w.inc))+row("المصاريف (بنزين، أكل، ثانية)",M(w.exp))+row("صافي الشغل مقابل خطتك",M(w.work)+" / "+M(w.planW),gap>=0?"var(--good)":"var(--bad)")+row("دفعت هذا الأسبوع",M(w.paid))+row("منها نزلت من ديونك",M(w.debtPaid),"var(--good)")+row("مجموع ديونك الحين",M(sum(S.items.filter(isDebt),curBal)))+row("صندوق السداد",M(fundBal()))+row("خالي من الديون (المتوقع)",dfText(debtFree(SIM)))+"</div>"+
+    '<div class="note '+(gap>=0?"good":"warn")+'">'+(gap>=0?"أسبوع فوق الخطة بـ "+money(gap)+". استمر.":"أسبوع تحت الخطة بـ "+money(-gap)+".")+"</div>"+
+    (focus.length?"<h3>تركيزك الأسبوع الجاي</h3><div class=\"rows\">"+focus.map((x,i)=>'<div class="row alert-row"><div class="when"><b>'+(i+1)+'</b></div><div class="what"><div style="font-weight:400">'+esc(x)+"</div></div><div></div></div>").join("")+"</div>":"")+
+    '<div class="btns" style="justify-content:flex-end"><button class="btn primary" data-a="weekdone">تمام</button></div>')}
+/* ---------- the app does the routine itself: tax set-aside and month-end surplus need no input from you ---------- */
+const autoOn=k=>(S.settings.auto||{})[k]!==false;
+function autoRun(){
+  const msgs=[],t=todayStr(),cur=ymOf(t);
+  if(autoOn("tax")){const x=Math.round(Math.min(taxShort(),Math.max(0,Math.floor(freeCash())))*100)/100;if(x>=1){S.reserves.push({id:uid(),date:t,amount:x,kind:"in",purpose:TAX,auto:true});msgs.push("تجنّب "+money(x)+" للضريبة")}}
+  if(autoOn("fund"))for(let g=0;g<36;g++){const ym=decisionYm();if(!ym||ym>=cur)break;const sp=surplusFor(ym);if(sp>0){S.reserves.push({id:uid(),date:t,amount:sp,kind:"in",purpose:FUND,auto:true,note:"فائض "+mName(ym)});msgs.push("تحوّل فائض "+mName(ym)+" ("+money(sp)+") للصندوق")}closeThrough(ym);if(!msgs.length)msgs.push("")}
+  if(!msgs.length)return null;
+  persist();return msgs.filter(Boolean).join(" · ")}
+
 /* ---------- alerts center: everything that needs you, each one opens the place to deal with it ---------- */
 let ALERTS=[];
 function openReport(id){repMode="debts";repDebt=id;if(location.hash!=="#reports")location.hash="reports";else render()}
@@ -708,23 +805,32 @@ function buildAlerts(){
   S.items.filter(it=>isDebt(it)&&!isPersonal(it)&&curBal(it)>0.5).forEach(it=>{
     const d=deadOf(it);if(d&&diffDays(t,d)<=7)out.push({lvl:d<t?"over":"soon",tag:"موعد",title:it.name+": "+(d<t?"فات الموعد النهائي ":"موعد نهائي ")+dLabel(d),sub:flags(it)+". اضغط تفتح سجل الدين.",go:()=>openReport(it.id)});
     const su=settleOf(it)?it.settleUntil:"";if(su&&diffDays(t,su)<=7)out.push({lvl:"soon",tag:"تسوية",title:it.name+": عرض التسوية ينتهي "+dLabel(su),sub:"تدفع "+money(settleOf(it))+" ويسقط "+money(curBal(it)-settleOf(it))+". اضغط تسجل دفع التسوية.",go:()=>settleSheet(it.id)})});
+  (S.contacts||[]).filter(c=>c.next&&c.next<=t&&byId(c.item)&&curBal(byId(c.item))>0.5).forEach(c=>{const d=byId(c.item);out.push({lvl:"soon",tag:"متابعة",title:"تابع مع "+d.name+(c.who?" ("+c.who+")":""),sub:(c.res==="settle"?"عرض التسوية ينتهي أو يحتاج رد. ":"")+(c.what||"اتصل وسجّل النتيجة.")+" اضغط تفتح سجل التواصل.",go:()=>openReport(d.id)})});
+  {const due=S.items.filter(d=>isDebt(d)&&!isPersonal(d)&&num(d.rate)>0&&curBal(d)>0.5&&diffDays(d.recon||S.startDate,t)>=35);
+   if(due.length)out.push({lvl:"",tag:"كشف",title:"طابق رصيد "+due[0].name+" مع كشف الحساب"+(due.length>1?" (+"+(due.length-1)+" ديون)":""),sub:"مرة بالشهر تكتب الرصيد الفعلي من الكشف، والتطبيق يصحح الفوائد والرسوم لحاله.",go:()=>reconSheet(due[0].id)})}
+  if(taxShort()>=50&&freeCash()>=50)out.push({lvl:"",tag:"ضريبة",title:"جنّب "+money(Math.min(taxShort(),freeCash()))+" لمخصص الضريبة",sub:"من دخلك المسجل لين اليوم. اضغط تجنّبه عشان ضريبة السنة الجاية ما تتراكم.",go:()=>taxSheet()});
   const a=advise();
   if(a)out.push({lvl:"",tag:"مقترح",title:"مستشار الصندوق: "+(a.type==="keep"?"خله في الصندوق":a.type==="overdue"?"غطِّ القسط المتأخر — "+a.it.name:(isGoal(a.it)?"اصرف للهدف — ":a.type==="pay"?"ادفع على ":"اقفل ")+a.it.name+" ("+money(a.amount)+")"),sub:a.why+" اضغط تقبل، تغيّر الدين، أو تأجل.",go:()=>adviceSheet()});
   const sp=surplusNow();
   if(sp>0&&!need)out.push({lvl:"",tag:"فائض",title:"معك فائض الحين: "+money(sp),sub:"اضغط تحوّله للصندوق أو توجهه لدين.",go:()=>surplusSheet(null)});
+  if(S.weekSeen!==weekKey()&&Object.keys(S.entries).length>=3)out.push({lvl:"",tag:"أسبوع",title:"مراجعة الأسبوع جاهزة",sub:"ملخص دخلك ومدفوعاتك وتقدمك في الديون، وتركيزك للأسبوع الجاي.",go:()=>weeklySheet()});
   const y=addDays(t,-1);
   if(y>=S.startDate&&!S.entries[y])out.push({lvl:"",tag:"يومية",title:"ما سجلت يومية "+dLabel(y),sub:"سجّلها حتى لو صفر عشان الحساب يكون دقيق.",go:()=>{location.hash="day";setTimeout(()=>{const f=$("#dayForm");if(f){f.date.value=y;f.date.dispatchEvent(new Event("input",{bubbles:true}))}},350)}});
   S.items.filter(it=>it.renew&&curBal(it)<=0.5&&!S.items.some(b=>b.kind==="bill"&&String(b.id).startsWith("pol-"))).forEach(it=>out.push({lvl:"",tag:"تأمين",title:"خلص "+it.name,sub:"اضغط تضيف وثيقة التأمين الجديدة وقسطها.",go:()=>policySheet()}));
   return out}
+const alertRow=(a,i)=>'<div class="row tap alert-row '+a.lvl+'" data-a="alert" data-i="'+i+'"><div class="when"><b style="font-size:13px">'+a.tag+'</b></div><div class="what"><div>'+esc(a.title)+'</div><div class="small" style="font-weight:400">'+esc(a.sub)+'</div></div><div class="amt" aria-hidden="true">‹</div></div>';
+function todoCard(){
+  if(!ALERTS.length)return '<div class="note good"><b>ما عليك شي الحين.</b> سجّل يومية اليوم آخر النهار، والتطبيق يتولى الباقي: يجنّب الضريبة، يحوّل الفائض للصندوق، وينبهك لما فيه قرار.</div>';
+  return '<section class="card"><div class="card-h"><h2>المطلوب منك الحين</h2>'+(ALERTS.length>3?'<a class="small" href="#alerts" style="color:var(--accent)">كل التنبيهات ('+ALERTS.length+")</a>":"")+'</div><div class="rows">'+ALERTS.slice(0,3).map(alertRow).join("")+"</div></section>"}
 function viewAlerts(){
   let h='<section class="card"><div class="card-h"><h2>التنبيهات</h2><span class="small muted">'+ALERTS.length+" تحتاج إجراء</span></div>"+'<p class="small muted">كل شي يحتاج منك إجراء موجود هنا. اضغط على أي تنبيه ويفتح لك مكان معالجته. التنبيه يختفي لما تعالجه.</p>';
-  h+=ALERTS.length?'<div class="rows">'+ALERTS.map((a,i)=>'<div class="row tap alert-row '+a.lvl+'" data-a="alert" data-i="'+i+'"><div class="when"><b style="font-size:13px">'+a.tag+'</b></div><div class="what"><div>'+esc(a.title)+'</div><div class="small" style="font-weight:400">'+esc(a.sub)+'</div></div><div class="amt" aria-hidden="true">‹</div></div>').join("")+"</div>":'<div class="empty">ما فيه شي يحتاج منك إجراء الحين.</div>';
+  h+=ALERTS.length?'<div class="rows">'+ALERTS.map(alertRow).join("")+"</div>":'<div class="empty">ما فيه شي يحتاج منك إجراء الحين.</div>';
   return h+"</section>"}
 
 /* ---------- views ---------- */
 function snowCard(){
   const fb=fundBal(),keep=keepAmt(),nt=nextTarget(),df=debtFree(SIM),df0=debtFree(SIM0);
-  let h='<section class="card snow"><div class="card-h"><h2>صندوق السداد · كرة الثلج</h2><span class="chip done">خالي من الديون: '+dfText(df)+"</span></div>";
+  let h='<section class="card snow"><div class="card-h"><h2>'+(S.items.some(d=>isDebt(d)&&curBal(d)>0.5)?"صندوق السداد · كرة الثلج":"صندوق الادخار · أنت خالي من الديون")+"</h2>"+'<span class="chip done">خالي من الديون: '+dfText(df)+"</span></div>";
   h+='<div class="kv"><div><div class="big">'+M(fb)+'</div><p class="small muted">رصيد الصندوق الحين'+(keep>0?" · "+money(keep)+" تبقى فيه دائماً للطوارئ":"")+'</p></div><div style="text-align:left"><b>'+M(SIM.months[0].toFund)+'</b><p class="small muted">متوقع ينضاف آخر هذا الشهر</p></div></div>';
   const adv=advise();
   if(adv)h+='<div class="note '+(adv.type==="keep"?"info":adv.type==="overdue"?"warn":"good")+'"><b>مقترح المستشار: '+(adv.type==="keep"?"خله في الصندوق":adv.type==="overdue"?"غطِّ القسط المتأخر — "+esc(adv.it.name)+" ("+money(adv.amount)+")":(isGoal(adv.it)?"اصرف للهدف — ":adv.type==="pay"?"ادفع على ":"اقفل ")+esc(adv.it.name)+" ("+money(adv.amount)+")")+"</b><br>"+esc(adv.why)+(adviceSnoozed()&&adv.type!=="keep"?" (أجّلته — يرجع يسألك لما يتغير رصيد الصندوق)":"")+'</div><button class="btn '+(adv.type==="keep"?"":"go")+'" data-a="advice">'+(adv.type==="keep"?"خيارات: ادفع على دين أو خله":"شوف المقترح: اقبل، غيّر الدين، أو أجّل")+"</button>";
@@ -732,8 +838,10 @@ function snowCard(){
     h+='<div><div class="kv"><span>الهدف الجاي: <b>'+esc(nt.name)+"</b>"+(isGoal(nt)?' <span class="chip">هدف</span>':"")+"</span><span>"+M(Math.min(room,need))+" / "+M(need)+'</span></div><div class="bar thick good" style="margin-top:6px"><i style="width:'+pc.toFixed(1)+'%"></i></div></div>';
     h+=room>=need-0.5?"":'<p class="small muted">تحتاج '+M(need-room)+" زيادة · متوقع "+(when&&when!=="done"?mName(when):"—")+(F_mode()==="chunk"?" · تدفع كل ما يوصل "+money(S.settings.fund.chunk):"")+"</p>"}
   const evs=SIM.events.filter(e=>e.type!=="natural").slice(0,5);
-  if(evs.length)h+='<div class="rows">'+evs.map(e=>'<div class="row"><div class="when"><b class="num">'+e.ym.slice(5,7)+"</b>"+e.ym.slice(0,4)+'</div><div class="what"><div>'+(e.type==="goal"?"الهدف: ":e.type==="personal"?"دفعة كاملة: ":"إقفال: ")+esc(e.name)+'</div><div class="chips">'+(e.freed?'<span class="chip done">يتحرر '+money(e.freed)+" بالشهر للصندوق</span>":"")+'</div></div><div class="amt">'+M(e.amount)+"</div></div>").join("")+"</div>";
-  h+='<p class="small muted">بدون الصندوق (بالأقساط فقط): '+dfText(df0)+'. <a href="#reports" data-a="rep" data-v="savings" style="color:var(--accent)">خطة كرة الثلج كاملة</a></p>';
+  if(evs.length)h+='<div class="rows">'+evs.map(e=>'<div class="row"><div class="when"><b class="num">'+e.ym.slice(5,7)+"</b>"+e.ym.slice(0,4)+'</div><div class="what"><div>'+(e.type==="goal"?(e.save?"ادخار: ":"الهدف: "):e.type==="personal"?"دفعة كاملة: ":"إقفال: ")+esc(e.name)+'</div><div class="chips">'+(e.freed?'<span class="chip done">يتحرر '+money(e.freed)+" بالشهر للصندوق</span>":"")+'</div></div><div class="amt">'+M(e.amount)+"</div></div>").join("")+"</div>";
+  const ti=totalInt(SIM),ti0=df0?totalInt(SIM0):null,mi=sum(S.items,intNow);
+  if(mi>0.5)h+='<div class="note warn">ديونك تكلفك فوائد ≈ <b>'+M(mi)+"</b> بالشهر الحين. لين الخلاص: "+M(ti)+" فوائد"+(ti0!=null&&ti0>ti+1?" (بالأقساط فقط كانت "+money(ti0)+"، فالصندوق يوفّر عليك "+money(ti0-ti)+")":df0?"":" (بالأقساط فقط ما تخلص أبداً)")+".</div>";
+  h+='<p class="small muted">بدون الصندوق (بالأقساط فقط): '+dfText(df0)+'. <a href="#reports" data-a="rep" data-v="savings" style="color:var(--accent)">خطة كرة الثلج كاملة</a> · <a href="#reports" data-a="rep" data-v="whatif" style="color:var(--accent)">جرّب "ماذا لو"</a></p>';
   return h+"</section>"}
 const F_mode=()=>(S.settings.fund||{}).mode||"close";
 function viewHome(){
@@ -747,7 +855,7 @@ function viewHome(){
     '<div class="stat"><span>باقي عليك هذا الشهر</span><b>'+M(dueLeft)+"</b></div>"+
     '<div class="stat acc"><span>صندوق السداد</span><b>'+M(fundBal())+"</b></div>"+
     '<div class="stat '+(m0.draw>0.5?"bad":"good")+'"><span>'+(m0.draw>0.5?"عجز متوقع آخر الشهر":"للصندوق آخر الشهر (متوقع)")+"</span><b>"+M(m0.draw>0.5?m0.draw:m0.toFund)+"</b></div></div>";
-  if(sp>0)h+='<section class="card alert"><div class="card-h"><h2>معك فائض الحين: '+M(sp)+'</h2><div class="btns"><button class="btn go" data-a="tofund">حوّله للصندوق</button><button class="btn" data-a="surplus">خيارات</button></div></div><p class="small">هذا النقد اللي يزيد بعد كل اللي باقي عليك هذا الشهر. حوّله للصندوق عشان يكبر ويقفل الدين الجاي أسرع.</p></section>';
+  h+=todoCard();
   h+='<div class="grid2"><section class="card"><div class="card-h"><h2>اليوم والشهر</h2><span class="chip">'+left+" يوم باقي في "+MONTHS[+ym.slice(5,7)-1]+"</span></div>";
   const ahead=mtd.got-mtd.expected,pw=perWorkday(ym);
   h+='<div><div class="big">'+M(Math.round(pw))+' <span class="small muted">هدفك ليوم الشغل (صافي بعد البنزين)</span></div><p class="small muted">'+(S.settings.incomeByMonth[ym]!=null?"دخل "+MONTHS[+ym.slice(5,7)-1]+" المخطط "+money(expectedMonth(ym)):"خطتك "+money(S.settings.dailyAvg)+" × "+S.settings.workdays+" يوم = "+money(planMonthly())+" بالشهر")+"</p></div>";
@@ -755,20 +863,20 @@ function viewHome(){
   if(need>0)h+='<div class="note warn">الحد الأدنى عشان تغطي التزامات الشهر: '+M(Math.ceil(minDay))+" صافي باليوم.</div>";
   if(PACE){const dp=debtFree(PACE),d1=debtFree(SIM);h+='<div class="note '+((dp&&d1&&dp<=d1)||(dp&&!d1)?"good":"info")+'">بمعدلك الفعلي (~'+money(a.month)+" بالشهر قبل الأكل، آخر "+a.days+" يوم): خالي من الديون "+dfText(dp)+" · بخطتك "+dfText(d1)+".</div>"}
   else if(!a||a.days<7)h+='<p class="small muted">بعد 7 أيام من اليوميات يقارن التطبيق معدلك الفعلي بخطتك ويقول لك متى تخلص بنفس السرعة.</p>';
-  h+='<button class="btn primary" data-go="day">سجّل يومية اليوم</button></section>';
+  h+='<div class="btns"><button class="btn primary" data-go="day" style="flex:1">سجّل يومية اليوم</button><button class="btn" data-a="weekly">مراجعة الأسبوع</button></div></section>';
   h+='<section class="card"><div class="card-h"><h2>المدفوعات القريبة</h2><span class="muted small">10 أيام</span></div>'+legend;
   h+=soon.length?'<div class="rows">'+soon.slice(0,8).map(l=>lineRow(l,t)).join("")+"</div>":'<div class="empty">ما فيه مدفوعات في الأيام الجاية.</div>';
   if(paidThis.length)h+='<h3>آخر المدفوع هذا الشهر</h3><div class="rows">'+paidThis.map(payRow).join("")+"</div>";
   h+="</section></div>";
   h+=snowCard();
   const rp=reserveByPurpose();delete rp[FUND];const other=sum(Object.values(rp),v=>v);
-  if(other>0.5)h+='<section class="card"><div class="card-h"><h2>احتياطي ثاني: '+M(other)+'</h2><button class="btn small" data-a="usereserve">استخدم أو حوّل</button></div><div class="rows">'+Object.keys(rp).map(k=>'<div class="row"><div></div><div class="what">'+esc(k)+'</div><div class="amt">'+M(rp[k])+"</div></div>").join("")+"</div></section>";
+  if(other>0.5)h+='<section class="card"><div class="card-h"><h2>احتياطي ثاني: '+M(other)+'</h2><button class="btn small" data-a="usereserve">استخدم أو حوّل</button></div><div class="rows">'+Object.keys(rp).map(k=>'<div class="row"><div></div><div class="what">'+esc(purposeName(k))+'</div><div class="amt">'+M(rp[k])+"</div></div>").join("")+"</div></section>";
   const debts=S.order.map(byId).filter(isDebt);
   const noAgr=debts.filter(d=>!isPersonal(d)&&curBal(d)>0.5&&legalOf(d)&&!agreedOf(d));
   if(noAgr.length)h+='<div class="note warn"><b>'+noAgr.map(d=>esc(d.name)).join("، ")+"</b>: بدون اتفاقية وعليها إنذار قانوني. بعد كل دفعة اطلب اتفاقية مكتوبة. لما يوافقون، غيّر الحالة من تبويب الديون (مرة وحدة) والتقييم يتعدل لحاله.</div>";
   h+='<section class="card"><div class="card-h"><h2>الديون</h2><span class="small muted">باقي '+M(sum(debts,curBal))+"</span></div><div class=\"rows\">";
   h+=debts.map(d=>{const b=curBal(d),p=num(d.balance)?Math.min(100,(1-b/num(d.balance))*100):100;
-    return '<div class="debt"><div data-a="report" data-id="'+d.id+'" style="cursor:pointer"><b>'+esc(d.name)+"</b> "+(isPersonal(d)?'<span class="chip full">شخصي</span>':"")+'</div><div class="amt">'+M(b)+'</div><div class="bar"><i style="width:'+p.toFixed(1)+'%"></i></div><div class="meta"><span>مدفوع '+M(num(d.balance)-b)+" من "+M(d.balance)+"</span><span>"+(isPersonal(d)?(b>0.5?"دفعة كاملة "+dLabel(d.due)+" "+d.due.slice(0,4):"انتهى ✓"):payoffText(d.id))+"</span></div>"+(d.renew&&b<=0.5?'<div class="btns"><button class="btn small primary" data-a="policy">أضف وثيقة تأمين جديدة</button></div>':"")+"</div>"}).join("");
+    return '<div class="debt"><div data-a="report" data-id="'+d.id+'" style="cursor:pointer"><b>'+esc(d.name)+"</b> "+(isPersonal(d)?'<span class="chip full">شخصي</span>':"")+'</div><div class="amt">'+M(b)+'</div><div class="bar"><i style="width:'+p.toFixed(1)+'%"></i></div><div class="meta"><span>مدفوع '+M(num(d.balance)-b)+" من "+M(d.balance)+"</span>"+(intNow(d)>0.5?"<span>فائدة ≈ "+M(intNow(d))+" بالشهر"+(d.rateEst?" (تقدير)":"")+"</span>":"")+"<span>"+(isPersonal(d)?(b>0.5?"دفعة كاملة "+dLabel(d.due)+" "+d.due.slice(0,4):"انتهى ✓"):payoffText(d.id))+"</span></div>"+(d.renew&&b<=0.5?'<div class="btns"><button class="btn small primary" data-a="policy">أضف وثيقة تأمين جديدة</button></div>':"")+"</div>"}).join("");
   return h+"</div></section>"}
 
 let openMonths=null;
@@ -792,7 +900,7 @@ function viewDay(){
   const keys=Object.keys(S.entries).sort().reverse().slice(0,21);
   let h='<section class="card"><div class="card-h"><h2>يومية</h2><span class="muted small">سجّل في نهاية كل يوم، حتى أيام الإجازة بصفر</span></div><form id="dayForm">'+
     field("التاريخ","date",t,"date",'max="'+t+'"')+
-    '<div class="fields">'+field("الدخل (كل اللي اشتغلته)","inc",e.inc??"")+field("البنزين","fuel",e.fuel??"")+field("الأكل والشرب","food",e.food??"")+field("مصاريف ثانية","other",e.other??"")+"</div>"+
+    '<div class="fields">'+field("الدخل (كل اللي اشتغلته)","inc",e.inc??"")+field("البنزين","fuel",e.fuel??"")+field("الأكل والشرب","food",e.food??"")+field("مصاريف ثانية (صيانة، غسيل...)","other",e.other??"")+field("ساعات الشغل (اختياري)","hrs",e.hrs??"")+"</div>"+
     '<div class="field"><label for="f_note">ملاحظة</label><input id="f_note" name="note" type="text" value="'+esc(e.note||"")+'"></div>'+
     '<div id="dayNet" class="note info"></div><button class="btn primary">حفظ اليومية</button></form>'+(liv?'<p class="small muted">الأكل والشرب ينخصم من ميزانية المعيشة ('+money(plannedFor(livingItem(),ym))+" بالشهر). باقي منها هذا الشهر "+M(Math.max(0,plannedFor(livingItem(),ym)-paidIn(livingItem().id,ym)))+".</p>":"")+"</section>";
   h+='<section class="card"><div class="card-h"><h2>آخر الأيام</h2><a class="small" href="#reports" data-a="rep" data-v="income" style="color:var(--accent)">كل السجل</a></div>';
@@ -802,11 +910,11 @@ const nextSig=()=>{const e=(SIM&&SIM.events||[]).find(x=>x.type==="close"||x.typ
 function wireDay(){
   const f=$("#dayForm");if(!f)return;
   const upd=()=>{const fd=Object.fromEntries(new FormData(f).entries()),ym=ymOf(fd.date||todayStr()),pw=perWorkday(ym),w=workMeasure(fd,ym);$("#dayNet").innerHTML="صافي اليوم: <b>"+M(netOf(fd))+"</b>"+(num(fd.inc)>0?" · مقابل هدفك "+M(Math.round(pw))+": <b style=\"color:"+(w>=pw?"var(--good)":"var(--bad)")+"\">"+(w>=pw?"+":"")+money(w-pw)+"</b>":"")};
-  const load=()=>{const e=S.entries[f.date.value]||{};["inc","fuel","food","other"].forEach(k=>f[k].value=e[k]??"");f.note.value=e.note||"";upd()};
+  const load=()=>{const e=S.entries[f.date.value]||{};["inc","fuel","food","other","hrs"].forEach(k=>f[k].value=e[k]??"");f.note.value=e.note||"";upd()};
   f.addEventListener("input",e=>{if(e.target.name==="date")load();else upd()});upd();
   f.addEventListener("submit",ev=>{ev.preventDefault();const fd=Object.fromEntries(new FormData(f).entries());if(!fd.date)return;
     const before=nextSig(),dfB=debtFree(SIM);
-    S.entries[fd.date]={inc:num(fd.inc),fuel:num(fd.fuel),food:num(fd.food),other:num(fd.other),note:fd.note||""};
+    S.entries[fd.date]={inc:num(fd.inc),fuel:num(fd.fuel),food:num(fd.food),other:num(fd.other),hrs:num(fd.hrs),note:fd.note||""};
     persist();render();
     const after=nextSig(),dfA=debtFree(SIM),ym=ymOf(fd.date),w=workMeasure(S.entries[fd.date],ym),pw=perWorkday(ym);
     let msg="انحفظت يومية "+dLabel(fd.date)+(num(fd.inc)>0?" · "+(w>=pw?"فوق هدفك بـ ":"تحت هدفك بـ ")+money(Math.abs(w-pw)):"");
@@ -819,7 +927,7 @@ function viewDebts(){
   let qn=0;
   let h='<section class="card"><div class="card-h"><h2>ترتيب صندوق السداد</h2><div class="btns"><button class="btn small" data-a="add" data-k="installment">+ دين بأقساط</button><button class="btn small" data-a="add" data-k="personal">+ دين شخصي</button><button class="btn small" data-a="add" data-k="goal">+ هدف</button></div></div><p class="small muted">الصندوق يقفل بهذا الترتيب، واحد واحد. الأقساط تمشي كلها في مواعيدها لين يجي دور الدين. الدين الشخصي خارج الترتيب: يندفع كامل بتاريخه. قدّم أو أخّر بالأسهم.</p><div class="rows">';
   h+=list.map((d,i)=>{const b=curBal(d),q=inQueue(d)&&b>0.5;if(q)qn++;
-    const sub=isPersonal(d)?"شخصي · دفعة كاملة "+M(b)+" يوم "+dLabel(d.due)+" "+d.due.slice(0,4)+(b<=0.5?" · انتهى ✓":""):isGoal(d)?"هدف · باقي "+M(b)+" من "+M(d.target)+" · "+payoffText(d.id):"خطورة "+RISKN[riskOf(d)]+" · "+flags(d)+" · باقي "+M(b)+(num(d.amount)?" · قسط "+M(d.amount)+" يوم "+d.day:" · بدون قسط ثابت")+" · "+payoffText(d.id);
+    const sub=isPersonal(d)?"شخصي · دفعة كاملة "+M(b)+" يوم "+dLabel(d.due)+" "+d.due.slice(0,4)+(b<=0.5?" · انتهى ✓":""):isGoal(d)?(d.save?"ادخار":"هدف")+" · باقي "+M(b)+" من "+M(d.target)+" · "+payoffText(d.id):"خطورة "+RISKN[riskOf(d)]+" · "+flags(d)+" · باقي "+M(b)+(num(d.amount)?" · قسط "+M(d.amount)+" يوم "+d.day:" · بدون قسط ثابت")+(num(d.rate)>0?" · فائدة "+num(d.rate)+"%"+(d.rateEst?" (تقدير)":"")+" ≈ "+money(intNow(d))+" بالشهر":"")+" · "+payoffText(d.id);
     return '<div class="prio"><span class="n'+(isPersonal(d)?" personal":isGoal(d)?" goal":b<=0.5?" off":"")+'">'+(isPersonal(d)?"ش":b<=0.5?"✓":qn)+'</span><div data-a="edit" data-id="'+d.id+'" style="cursor:pointer;min-width:0"><b>'+esc(d.name)+'</b><div class="small muted">'+sub+"</div>"+(d.renew&&b<=0.5?'<button class="btn small primary" data-a="policy" style="margin-top:6px">أضف وثيقة تأمين جديدة</button>':"")+'</div><div class="btns"><button class="btn icon small" aria-label="قدّم" data-a="up" data-id="'+d.id+'"'+(i===0?" disabled":"")+'>▲</button><button class="btn icon small" aria-label="أخّر" data-a="down" data-id="'+d.id+'"'+(i===list.length-1?" disabled":"")+">▼</button></div></div>"}).join("");
   h+='</div></section><section class="card"><div class="card-h"><h2>المصاريف الثابتة</h2><div class="btns"><button class="btn small" data-a="add" data-k="bill">+ مصروف ثابت</button><button class="btn small" data-a="policy">+ وثيقة تأمين</button></div></div><div class="rows">';
   const fq={monthly:"كل شهر",bimonthly:"كل شهرين",yearly:"كل سنة",once:"مرة واحدة"};
@@ -827,18 +935,61 @@ function viewDebts(){
   const F=S.settings.fund||{};
   h+='</div></section><section class="card"><div class="card-h"><h2>الدخل والصندوق</h2><button class="btn small" data-a="settings">تعديل</button></div>';
   const ibm=Object.keys(S.settings.incomeByMonth).sort();
-  h+='<div class="rows"><div class="row"><div></div><div class="what">خطة الدخل (صافي بعد البنزين)</div><div class="amt">'+M(S.settings.dailyAvg)+" × "+S.settings.workdays+" = "+M(planMonthly())+"</div></div>"+ibm.map(k=>'<div class="row"><div></div><div class="what">'+mName(k)+'</div><div class="amt">'+M(S.settings.incomeByMonth[k])+"</div></div>").join("")+'<div class="row"><div></div><div class="what">الخطة تحسب الدخل من</div><div class="amt small">'+(S.settings.incomeMode==="actual"?"متوسطي الفعلي":"الخطة")+'</div></div><div class="row"><div></div><div class="what">طريقة الصندوق</div><div class="amt small">'+(F.mode==="chunk"?"يدفع كل ما يوصل "+money(F.chunk):"يجمع لين يقفل الدين كامل")+'</div></div><div class="row"><div></div><div class="what">يبقى في الصندوق دائماً</div><div class="amt">'+M(F.keep)+'</div></div><div class="row"><div></div><div class="what">النقد يوم بداية الخطة ('+dLabel(S.startDate)+')</div><div class="amt">'+M(S.startCash)+"</div></div></div></section>";
+  h+='<div class="rows"><div class="row"><div></div><div class="what">خطة الدخل (صافي بعد البنزين)</div><div class="amt">'+M(S.settings.dailyAvg)+" × "+S.settings.workdays+" = "+M(planMonthly())+"</div></div>"+ibm.map(k=>'<div class="row"><div></div><div class="what">'+mName(k)+'</div><div class="amt">'+M(S.settings.incomeByMonth[k])+"</div></div>").join("")+'<div class="row"><div></div><div class="what">الخطة تحسب الدخل من</div><div class="amt small">'+(S.settings.incomeMode==="actual"?"متوسطي الفعلي":"الخطة")+'</div></div><div class="row"><div></div><div class="what">طريقة الصندوق</div><div class="amt small">'+(F.mode==="chunk"?"يدفع كل ما يوصل "+money(F.chunk):"يجمع لين يقفل الدين كامل")+'</div></div><div class="row"><div></div><div class="what">يبقى في الصندوق دائماً</div><div class="amt">'+M(F.keep)+'</div></div><div class="row"><div></div><div class="what">مخصص الضريبة</div><div class="amt small">'+(num(taxCfg().pct)>0?num(taxCfg().pct)+"% من "+mName(taxCfg().start||ymOf(todayStr())):"متوقف")+'</div></div><div class="row"><div></div><div class="what">النقد يوم بداية الخطة ('+dLabel(S.startDate)+')</div><div class="amt">'+M(S.startCash)+"</div></div></div></section>";
   if(Math.min(screen.width,screen.height)<700){let vm="compact";try{vm=localStorage.getItem("sadad-view")||"compact"}catch(e){}
     h+='<section class="card"><h2>حجم العرض على الجوال</h2><p class="small muted">"مثل التابلت" يعرض نفس الترتيب بحجم أصغر. لو الخط صغير عليك اختر "وسط" أو "كبير".</p><div class="seg">'+[["compact","مثل التابلت"],["medium","وسط"],["normal","كبير (عمود واحد)"]].map(([v,l])=>'<button data-a="viewmode" data-v="'+v+'" aria-pressed="'+(vm===v)+'">'+l+"</button>").join("")+"</div></section>"}
   h+='<section class="card"><h2>التنبيهات</h2><p class="small muted">التنبيه يرن ويكرر الرنة لين تفتحه. الدفعات: قبلها بـ 3 أيام، كل 6 ساعات (9 الصبح، 3 العصر، 9 الليل). اليومية: 9 الليل، ثم 12 الليل و6 الفجر لو ما سجلتها. اضغط على الإشعار ويفتح لك صفحة التنبيهات.</p><div class="btns"><button class="btn" data-a="testnotify">جرّب التنبيه الحين</button></div></section>';
   h+='<section class="card"><div class="card-h"><h2>المزامنة بين الأجهزة</h2><span class="chip '+(syncOn()&&!SY.err?"done":"")+'">'+(syncOn()?"مفعّلة":"غير مفعّلة")+'</span></div><p class="small muted" id="syncStatus">'+esc(syncStatusText())+'</p><div class="btns"><button class="btn" data-a="syncsetup">'+(syncOn()?"إعدادات المزامنة":"فعّل المزامنة")+"</button>"+(syncOn()?'<button class="btn primary" data-a="syncnow">زامن الحين</button>':"")+"</div></section>";
-  h+='<section class="card"><h2>نسخة احتياطية</h2><p class="small muted">بياناتك محفوظة على هذا الجهاز. خذ نسخة كل أسبوع وأرسلها لنفسك (واتساب أو إيميل).</p><div class="btns"><button class="btn" data-a="export">مشاركة نسخة احتياطية</button><button class="btn" data-a="import">استرجاع نسخة</button><button class="btn danger" data-a="reset">رجوع للخطة الأصلية</button></div></section>';
+  h+='<section class="card"><div class="card-h"><h2>قفل التطبيق</h2><span class="chip '+(pinGet()?"done":"")+'">'+(pinGet()?"مفعّل":"غير مفعّل")+'</span></div><p class="small muted">رمز سري يُطلب عند فتح التطبيق على هذا الجهاز، عشان ما أحد يشوف أرقامك.</p><div class="btns"><button class="btn" data-a="pin">'+(pinGet()?"غيّر الرمز أو ألغِ القفل":"فعّل القفل برمز")+"</button></div></section>";
+  {const sk=snapKeys().reverse();
+   h+='<section class="card"><h2>النسخ الاحتياطية</h2><p class="small muted">التطبيق يحفظ نسخة تلقائية كل يوم على هذا الجهاز لآخر 7 أيام'+(syncOn()?"، وبياناتك كمان محفوظة في المزامنة":"")+'. لو خربت شي بالغلط، رجّع نسخة يوم سابق.</p>'+(sk.length?'<div class="fields"><div class="field"><label for="snapSel">نسخة يوم</label><select id="snapSel">'+sk.map(k=>'<option value="'+k+'">'+dLabel(k.slice(SNAP.length))+" "+k.slice(SNAP.length,SNAP.length+4)+"</option>").join("")+'</select></div><div class="field"><label>&nbsp;</label><button class="btn" data-a="snaprestore">رجّع هذي النسخة</button></div></div>':"")+'<div class="btns"><button class="btn" data-a="export">مشاركة نسخة يدوية</button><button class="btn" data-a="import">استرجاع نسخة يدوية</button><button class="btn danger" data-a="reset">رجوع للخطة الأصلية</button></div></section>'}
   h+='<section class="card"><div class="card-h"><h2>الإصدار '+APPV+"</h2>"+(location.protocol.startsWith("http")?'<button class="btn small" data-a="appupdate">حدّث التطبيق الحين</button>':"")+'</div><p class="small muted">'+(location.protocol.startsWith("http")?"التطبيق يتحدث لحاله لما تفتحه وفيه إنترنت. لو قلت لك فيه إصدار جديد وما طلع، اضغط الزر.":"نسخة التابلت تتحدث بتثبيت ملف APK الجديد فوقها.")+"</p></section>";
   return h}
 
 let repMode="income",repRange="month",repDebt="all";
 function viewReports(){
-  return '<div class="seg" role="group"><button data-a="rep" data-v="income" aria-pressed="'+(repMode==="income")+'">سجل الدخل</button><button data-a="rep" data-v="debts" aria-pressed="'+(repMode==="debts")+'">سجل الديون</button><button data-a="rep" data-v="savings" aria-pressed="'+(repMode==="savings")+'">الفوائض والادخار</button></div>'+(repMode==="income"?repIncome():repMode==="savings"?repSavings():repDebts())}
+  return '<div class="seg" role="group"><button data-a="rep" data-v="income" aria-pressed="'+(repMode==="income")+'">سجل الدخل</button><button data-a="rep" data-v="debts" aria-pressed="'+(repMode==="debts")+'">سجل الديون</button><button data-a="rep" data-v="savings" aria-pressed="'+(repMode==="savings")+'">الفوائض والادخار</button><button data-a="rep" data-v="whatif" aria-pressed="'+(repMode==="whatif")+'">ماذا لو</button><button data-a="rep" data-v="tax" aria-pressed="'+(repMode==="tax")+'">الضريبة</button></div>'+(repMode==="income"?repIncome():repMode==="savings"?repSavings():repMode==="whatif"?repWhatIf():repMode==="tax"?repTax():repDebts())}
+/* ---------- what if: move the numbers, see the debt-free date move ---------- */
+let WI=null;
+function wiDefaults(){const l=livingItem();return{daily:num(S.settings.dailyAvg),wd:num(S.settings.workdays),living:l?num(l.amount):0,tax:num(taxCfg().pct),lump:0,sid:"",spct:50}}
+function wiRun(w){
+  return withState(st=>{
+    st.settings.dailyAvg=w.daily;st.settings.workdays=w.wd;st.settings.incomeMode="plan";
+    const l=st.items.find(i=>i.fromDaily);if(l)l.amount=w.living;
+    st.settings.tax={pct:w.tax,start:(st.settings.tax||{}).start||ymOf(todayStr())};
+    if(w.lump>0)st.reserves.push({id:"wi",date:todayStr(),amount:w.lump,kind:"in",purpose:FUND});
+    if(w.sid){const d=st.items.find(i=>i.id===w.sid);if(d){d.settle=Math.round(Math.max(0,num(d.balance)-sum(st.payments.filter(p=>p.item===d.id),p=>num(p.amount)))*w.spct/100);d.settleUntil=""}}
+  },()=>{const sim=simulate({fund:true});return{sim,df:debtFree(sim),int:totalInt(sim)}})}
+function wiOut(){
+  const base={df:debtFree(SIM),int:totalInt(SIM)},r=wiRun(WI),ym0=ymOf(todayStr());
+  const mo=d=>d&&d!=="done"?mBetween(ym0,d):d==="done"?0:null,a=mo(base.df),b=mo(r.df),diff=a!=null&&b!=null?a-b:null;
+  let h='<div class="stats"><div class="stat"><span>خطتك الحالية</span><b style="font-size:16px">'+dfText(base.df)+'</b></div><div class="stat '+(diff>0?"good":diff<0?"bad":"")+'"><span>بهذا السيناريو</span><b style="font-size:16px">'+dfText(r.df)+'</b></div><div class="stat '+(diff>0?"good":diff<0?"bad":"")+'"><span>الفرق</span><b style="font-size:16px">'+(diff==null?"—":diff===0?"نفس التاريخ":(diff>0?"أبكر بـ ":"أبعد بـ ")+Math.abs(diff)+" شهر")+'</b></div><div class="stat"><span>الفوائد لين الخلاص</span><b>'+M(r.int)+"</b>"+(Math.abs(base.int-r.int)>1?'<span style="color:'+(r.int<base.int?"var(--good)":"var(--bad)")+'">'+(r.int<base.int?"توفّر ":"تزيد ")+money(Math.abs(base.int-r.int))+"</span>":"")+"</div></div>";
+  const ev=r.sim.events.filter(e=>e.type!=="natural").slice(0,12);
+  h+='<section class="card"><h2>الإقفالات في هذا السيناريو</h2>'+(ev.length?'<div class="tablewrap"><table><thead><tr><th>الشهر</th><th>الحدث</th><th>المبلغ</th><th>في خطتك الحالية</th></tr></thead><tbody>'+ev.map(e=>'<tr><td>'+mName(e.ym)+"</td><td>"+esc(e.name)+'</td><td class="n">'+money(e.amount)+"</td><td>"+(SIM.payoff[e.id]&&SIM.payoff[e.id]!=="done"?mName(SIM.payoff[e.id]):"—")+"</td></tr>").join("")+"</tbody></table></div>":'<div class="empty">ما فيه إقفالات بهذي الأرقام.</div>')+"</section>";
+  return h}
+function repWhatIf(){
+  if(!WI)WI=wiDefaults();
+  const ds=S.order.map(byId).filter(d=>isDebt(d)&&!isPersonal(d)&&curBal(d)>0.5);
+  return '<section class="card"><div class="card-h"><h2>ماذا لو</h2><button class="btn small" data-a="wireset">رجّع أرقام خطتي</button></div><p class="small muted">غيّر أي رقم وشوف تاريخ الخلاص من الديون يتغير. ما يتغير شي في خطتك إلا لو ضغطت "اعتمد".</p><form id="wiForm"><div class="fields">'+field("دخل يوم الشغل (صافي بعد البنزين)","daily",WI.daily)+field("أيام الشغل بالشهر","wd",WI.wd,"number",'min="1" max="31"')+field("ميزانية المعيشة بالشهر","living",WI.living)+field("مخصص الضريبة %","tax",WI.tax)+field("مبلغ مرة وحدة تحطه في الصندوق الحين","lump",WI.lump||"")+'<div class="field"><label for="f_sid">تسوية دين</label><select id="f_sid" name="sid"><option value="">— بدون —</option>'+ds.map(d=>'<option value="'+d.id+'"'+(WI.sid===d.id?" selected":"")+">"+esc(d.name)+" ("+money(curBal(d))+")</option>").join("")+"</select></div>"+field("تدفع كم % من الدين في التسوية","spct",WI.spct,"number",'min="5" max="100"')+'</div><div class="btns"><button type="button" class="btn primary" data-a="wiapply">اعتمد الدخل والمعيشة والضريبة في خطتي</button></div></form></section><div id="wiOut" style="display:flex;flex-direction:column;gap:16px">'+wiOut()+"</div>"}
+function wireWhatIf(){
+  const f=$("#wiForm");if(!f)return;
+  const go=()=>{WI={daily:num(f.daily.value),wd:Math.min(31,Math.max(1,num(f.wd.value)||1)),living:Math.max(0,num(f.living.value)),tax:Math.min(60,Math.max(0,num(f.tax.value))),lump:Math.max(0,num(f.lump.value)),sid:f.sid.value,spct:Math.min(100,Math.max(5,num(f.spct.value)||50))};$("#wiOut").innerHTML=wiOut()};
+  f.addEventListener("input",go);f.addEventListener("change",go);f.addEventListener("submit",e=>e.preventDefault())}
+/* ---------- tax: what to keep aside, and what you can deduct ---------- */
+let taxYear=null;
+function repTax(){
+  const c=taxCfg(),keys=Object.keys(S.entries).sort(),years=[...new Set(keys.map(k=>k.slice(0,4)).concat([todayStr().slice(0,4)]))].sort();
+  if(!taxYear||!years.includes(taxYear))taxYear=years[years.length-1];
+  const ks=keys.filter(k=>k.slice(0,4)===taxYear),E=ks.map(k=>S.entries[k]);
+  const inc=sum(E,e=>num(e.inc)),fuel=sum(E,e=>num(e.fuel)),oth=sum(E,e=>num(e.other)),net=inc-fuel-oth;
+  const owedY=sum(ks.filter(k=>taxOn(ymOf(k))),k=>Math.max(0,taxBase(S.entries[k])))*num(c.pct)/100;
+  let h='<div class="seg">'+years.map(y=>'<button data-a="taxyear" data-v="'+y+'" aria-pressed="'+(y===taxYear)+'">'+y+"</button>").join("")+"</div>";
+  h+='<div class="stats"><div class="stat"><span>دخل الشغل '+taxYear+'</span><b>'+M(inc)+'</b></div><div class="stat"><span>مصاريف تنخصم (بنزين + سيارة)</span><b>'+M(fuel+oth)+'</b></div><div class="stat"><span>صافي دخل الشغل</span><b>'+M(net)+'</b></div><div class="stat '+(taxShort()>0.5?"bad":"good")+'"><span>محجوز في مخصص الضريبة</span><b>'+M(resOf(TAX))+"</b></div></div>";
+  h+=num(c.pct)>0?'<section class="card"><div class="card-h"><h2>التجنيب '+num(c.pct)+"% من "+mName(c.start||ymOf(todayStr()))+'</h2><button class="btn small primary" data-a="taxnow">جنّب الحين</button></div><div class="rows"><div class="row"><div></div><div class="what">المفروض تجنّبه عن '+taxYear+'</div><div class="amt">'+M(owedY)+'</div></div><div class="row"><div></div><div class="what">المفروض لين اليوم (كل السنوات)</div><div class="amt">'+M(taxOwedToDate())+'</div></div><div class="row"><div></div><div class="what">جنّبت</div><div class="amt">'+M(taxSetAside())+'</div></div><div class="row"><div></div><div class="what">ناقص</div><div class="amt" style="color:'+(taxShort()>0.5?"var(--bad)":"var(--good)")+'">'+M(taxShort())+"</div></div></div></section>":'<div class="note warn">مخصص الضريبة متوقف. فعّله من تبويب الديون ← الدخل والصندوق ← تعديل، عشان ما تتراكم عليك ضريبة سنة جديدة.</div>';
+  const ms=[...new Set(ks.map(ymOf))];
+  h+='<section class="card"><h2>شهر بشهر</h2>'+(ms.length?'<div class="tablewrap"><table><thead><tr><th>الشهر</th><th>الدخل</th><th>بنزين</th><th>مصاريف ثانية</th><th>الصافي</th><th>التجنيب المطلوب</th></tr></thead><tbody>'+ms.map(m=>{const e=ks.filter(k=>ymOf(k)===m).map(k=>S.entries[k]),i=sum(e,x=>num(x.inc)),fu=sum(e,x=>num(x.fuel)),o=sum(e,x=>num(x.other));return "<tr><td>"+mName(m)+'</td><td class="n">'+money(i)+'</td><td class="n">'+money(fu)+'</td><td class="n">'+money(o)+'</td><td class="n"><b>'+money(i-fu-o)+'</b></td><td class="n">'+(taxOn(m)?money(Math.max(0,i-fu-o)*num(c.pct)/100):"—")+"</td></tr>"}).join("")+'</tbody><tfoot><tr><td>المجموع</td><td class="n">'+money(inc)+'</td><td class="n">'+money(fuel)+'</td><td class="n">'+money(oth)+'</td><td class="n">'+money(net)+'</td><td class="n">'+money(owedY)+"</td></tr></tfoot></table></div>":'<div class="empty">ما فيه يوميات في '+taxYear+".</div>")+"</section>";
+  h+='<div class="note info">هذا تقرير للتجنيب والتنظيم، مو إقرار ضريبي. أعطه لمحاسبك وقت الإقرار: فيه دخلك ومصاريف البنزين والسيارة جاهزة. احتفظ بفواتير البنزين والصيانة. المحاسب يضيف خصومات ثانية (فوائد قرض السيارة، التأمين، استهلاك السيارة).</div>';
+  return h}
 function repIncome(){
   const t=todayStr(),ym=ymOf(t);let keys=Object.keys(S.entries).sort();
   if(repRange==="month")keys=keys.filter(k=>ymOf(k)===ym);
@@ -854,6 +1005,8 @@ function repIncome(){
   if(repRange==="all"&&new Set(keys.map(ymOf)).size>1){const ms=[...new Set(keys.map(ymOf))];bars=ms.map(m=>({label:MONTHS[+m.slice(5,7)-1],tip:mName(m),parts:[{v:sum(keys.filter(k=>ymOf(k)===m),k=>netOf(S.entries[k])),c:"var(--accent)",n:"الصافي"}]}))}
   else bars=keys.map(k=>({label:String(dDay(k)),tip:dLabel(k),parts:[{v:netOf(S.entries[k]),c:"var(--accent)",n:"الصافي"}]}));
   h+='<section class="card"><h2>الصافي '+(bars.length!==keys.length?"بالشهر":"باليوم")+'</h2><p class="small muted">أيام شغل '+worked+" من "+span+" · البنزين "+M(fuel)+" · الأكل والشرب "+M(food)+" · ثانية "+M(oth)+"</p>"+svgChart(bars,{mode:"stack",labels:bars.length<=14,ticks:16,title:"الصافي"})+"</section>";
+  {const st=incomeStats(),tips=incomeTips(st),useH=st.by.filter(d=>d.cnt).every(d=>d.ph>0)&&st.hrs>0;
+   h+='<section class="card"><div class="card-h"><h2>تحليل دخلك</h2><span class="small muted">من كل يومياتك ('+st.cnt+" يوم شغل)</span></div>"+(st.cnt?'<p class="small muted">'+(useH?"صافي الساعة لكل يوم من الأسبوع (بعد البنزين). المتوسط العام "+money(st.ph)+" بالساعة.":"متوسط صافي يوم الشغل لكل يوم من الأسبوع (بعد البنزين). المتوسط العام "+money(st.avg)+".")+"</p>"+svgChart(st.by.map(d=>({label:d.n,tip:d.n+" ("+d.cnt+" يوم)",parts:[{v:useH?d.ph:d.avg,c:"var(--accent)",n:useH?"بالساعة":"باليوم"}]})),{mode:"stack",title:"تحليل الدخل",h:190}):"")+'<div class="rows">'+tips.map(x=>'<div class="row alert-row"><div class="when"><b style="font-size:13px">نصيحة</b></div><div class="what"><div style="font-weight:400">'+esc(x)+"</div></div><div></div></div>").join("")+"</div></section>"}
   h+='<section class="card"><h2>السجل</h2><p class="small muted">اضغط على أي يوم لتعديله.</p><div class="tablewrap"><table><thead><tr><th>اليوم</th><th>الدخل</th><th>بنزين</th><th>أكل</th><th>ثانية</th><th>الصافي</th><th>ملاحظة</th></tr></thead><tbody>'+keys.slice().reverse().map(k=>{const e=S.entries[k];return '<tr data-a="editday" data-d="'+k+'" style="cursor:pointer"><td>'+dLabel(k)+" "+k.slice(0,4)+'</td><td class="n">'+money(e.inc)+'</td><td class="n">'+money(e.fuel)+'</td><td class="n">'+money(e.food)+'</td><td class="n">'+money(e.other)+'</td><td class="n"><b>'+money(netOf(e))+"</b></td><td>"+esc(e.note||"")+"</td></tr>"}).join("")+'</tbody><tfoot><tr><td>المجموع</td><td class="n">'+money(inc)+'</td><td class="n">'+money(fuel)+'</td><td class="n">'+money(food)+'</td><td class="n">'+money(oth)+'</td><td class="n">'+money(net)+"</td><td></td></tr></tfoot></table></div></section>";
   return h}
 function repDebts(){
@@ -880,6 +1033,7 @@ function repDebts(){
   const sd=settleOf(d);if(sd)h+='<div class="note good">عرض تسوية: تدفع '+money(sd)+" ويسقط عنك "+money(b-sd)+(d.settleUntil?" · صالح لين "+dLabel(d.settleUntil):"")+'.</div><button class="btn go" data-a="settle" data-id="'+d.id+'">سجّل دفع التسوية</button>';
   h+='<div class="bar"><i style="width:'+(num(d.balance)?((1-b/num(d.balance))*100).toFixed(1):100)+'%"></i></div>';
   if(!isPersonal(d)&&b>0.5){const ser=debtSeries([d.id]);let cut=ser.length;for(let i=ser.length-1;i>=0;i--){if(ser[i].s0>0.5||ser[i].s1>0.5){cut=i+2;break}}h+=drillChart("one-"+d.id,"رصيد "+d.name,ser.slice(0,Math.min(ser.length,cut)),parts,{agg:"last",mode:"group",legend:leg})}
+  h+=contactsCard(d);
   lineIndex=[];
   h+='<div class="grid2"><section class="card"><div class="card-h"><h2>الدفعات القادمة</h2>'+(isPersonal(d)?"":'<button class="btn small" data-a="addexc" data-item="'+d.id+'">+ دفعة استثنائية</button>')+"</div>"+(up.length?'<div class="rows">'+up.slice(0,18).map(l=>lineRow(l,t)).join("")+"</div>":'<div class="empty">ما فيه دفعات مجدولة.</div>')+"</section>";
   h+='<section class="card"><h2>الدفعات المدفوعة</h2>'+(pays.length?'<div class="rows">'+pays.map(payRow).join("")+"</div>":'<div class="empty">ما سجلت أي دفعة لهذا الدين بعد.</div>')+"</section></div>";
@@ -888,16 +1042,24 @@ function repSavings(){
   const ms=SIM.months,fb=fundBal(),next12=ms.slice(1,13),avg=next12.length?sum(next12,m=>m.toFund-m.draw)/next12.length:0;
   const freedTotal=sum(SIM.events.filter(e=>e.type==="close"||e.type==="natural"),e=>e.freed);
   let h='<div class="stats"><div class="stat acc"><span>صندوق السداد الحين</span><b>'+M(fb)+'</b></div><div class="stat"><span>متوقع للصندوق هذا الشهر</span><b>'+M(ms[0].toFund)+'</b></div><div class="stat"><span>متوسط للصندوق بالشهر (12 شهر)</span><b>'+M(avg)+'</b></div><div class="stat good"><span>أقساط تتحرر لين النهاية</span><b>'+M(freedTotal)+"<span class=\"small\"> بالشهر</span></b></div></div>";
-  h+='<div class="note info">كل شهر: الدخل ناقص المصاريف الثابتة والأقساط والمعيشة = فائض يروح للصندوق. لما يقفل دين، قسطه يصير جزء من الفائض كل شهر، فالصندوق يكبر أسرع (كرة الثلج). الأرقام بدون فوائد.</div>';
+  h+='<div class="note info">كل شهر: الدخل ناقص المصاريف الثابتة والأقساط والمعيشة = فائض يروح للصندوق. لما يقفل دين، قسطه يصير جزء من الفائض كل شهر، فالصندوق يكبر أسرع (كرة الثلج). الفوائد محسوبة حسب نسبة كل دين'+(S.items.some(i=>i.rateEst)?" (بعضها تقدير، صحّحها من كشف الحساب)":"")+"."+(taxOn(addM(ymOf(todayStr()),6))?" ومخصص الضريبة "+num(taxCfg().pct)+"% مخصوم قبل الفائض.":"")+"</div>";
   h+=drillChart("surplus","الفائض للصندوق",ms,surplusParts,{agg:"sum",mode:"stack",legend:[{c:"var(--accent)",n:"فرق الدخل والمصاريف"},{c:"var(--chart-good)",n:"أقساط تحررت"},{c:"var(--bad)",n:"عجز"}]});
   const evByYm={};SIM.events.forEach(e=>{if(e.type!=="natural")(evByYm[e.ym]=evByYm[e.ym]||[]).push(e.name)});
   h+=drillChart("fund","رصيد صندوق السداد",ms,m=>[{v:m.fund,c:evByYm[m.ym]?"var(--chart-good)":"var(--accent)",n:"رصيد الصندوق"}],{agg:"last",mode:"stack",sub:"يكبر كل شهر، وينزل لما يقفل دين. الأعمدة الخضراء أشهر فيها إقفال.",tipOf:m=>evByYm[m.ym]?" · "+evByYm[m.ym].join("، "):""});
+  {const sg=S.order.map(byId).filter(isSave),df=debtFree(SIM),after=df&&df!=="done"?ms.find(m=>m.ym>df):null;
+   if(sg.length||after)h+='<section class="card"><h2>بعد الديون: الادخار</h2>'+(after?'<div class="note good">أول شهر بدون أي دين: <b>'+mName(after.ym)+"</b>. وقتها يبقى لك تقريباً <b>"+money(after.toFund-after.draw)+"</b> بالشهر للادخار ولعائلتك.</div>":"")+(sg.length?'<div class="tablewrap"><table><thead><tr><th>هدف الادخار</th><th>المطلوب</th><th>تجمّع</th><th>يكتمل</th></tr></thead><tbody>'+sg.map(g=>{const p=SIM.payoff[g.id];return '<tr data-a="edit" data-id="'+g.id+'" style="cursor:pointer"><td>'+esc(g.name)+'</td><td class="n">'+money(g.target)+'</td><td class="n">'+money(resOf("save:"+g.id))+"</td><td><b>"+(p==="done"?"اكتمل":p?mName(p):"—")+"</b></td></tr>"}).join("")+'</tbody></table></div><p class="small muted">الصندوق يبدأ يعبّي أهداف الادخار بعد ما تخلص الديون، بالترتيب. اضغط على الهدف تعدل مبلغه، أو أضف هدف جديد من تبويب الديون.</p>':"")+"</section>"}
   const evs=SIM.events;
-  h+='<section class="card"><h2>خطة كرة الثلج</h2><p class="small muted">بالترتيب اللي حددته في تبويب الديون. "للصندوق بعدها" = كم يروح للصندوق في الشهر اللي بعده.</p>'+(evs.length?'<div class="tablewrap"><table><thead><tr><th>الشهر</th><th>الحدث</th><th>المبلغ</th><th>يتحرر بالشهر</th><th>للصندوق بعدها</th></tr></thead><tbody>'+evs.map(e=>{const nx=ms.find(m=>m.ym===addM(e.ym,1));return '<tr class="'+(e.type==="close"?"ev-close":"")+'"><td>'+mName(e.ym)+"</td><td>"+(e.type==="close"?"إقفال من الصندوق: ":e.type==="goal"?"الهدف من الصندوق: ":e.type==="personal"?"دفعة كاملة: ":"خلص بالأقساط: ")+esc(e.name)+'</td><td class="n">'+money(e.amount)+'</td><td class="n">'+(e.freed?money(e.freed):"—")+'</td><td class="n">'+(nx?money(nx.toFund-nx.draw):"—")+"</td></tr>"}).join("")+"</tbody></table></div>":'<div class="empty">ما فيه إقفالات متوقعة. زد الدخل المتوقع أو قلل المصاريف.</div>')+"</section>";
+  h+='<section class="card"><h2>خطة كرة الثلج</h2><p class="small muted">بالترتيب اللي حددته في تبويب الديون. "للصندوق بعدها" = كم يروح للصندوق في الشهر اللي بعده.</p>'+(evs.length?'<div class="tablewrap"><table><thead><tr><th>الشهر</th><th>الحدث</th><th>المبلغ</th><th>يتحرر بالشهر</th><th>للصندوق بعدها</th></tr></thead><tbody>'+evs.map(e=>{const nx=ms.find(m=>m.ym===addM(e.ym,1));return '<tr class="'+(e.type==="close"?"ev-close":"")+'"><td>'+mName(e.ym)+"</td><td>"+(e.type==="close"?"إقفال من الصندوق: ":e.type==="goal"?(e.save?"اكتمل الادخار: ":"الهدف من الصندوق: "):e.type==="personal"?"دفعة كاملة: ":"خلص بالأقساط: ")+esc(e.name)+'</td><td class="n">'+money(e.amount)+'</td><td class="n">'+(e.freed?money(e.freed):"—")+'</td><td class="n">'+(nx?money(nx.toFund-nx.draw):"—")+"</td></tr>"}).join("")+"</tbody></table></div>":'<div class="empty">ما فيه إقفالات متوقعة. زد الدخل المتوقع أو قلل المصاريف.</div>')+"</section>";
   return h}
 
 /* ---------- sheets & actions ---------- */
+function taxSheet(){
+  const c=taxCfg(),sh=taxShort(),held=resOf(TAX),free=Math.max(0,Math.floor(freeCash()));
+  openSheet("<h2>"+TAX+'</h2><p class="small muted">تجنّب '+num(c.pct)+"% من دخلك (بعد البنزين ومصاريف السيارة) كل شهر، عشان ضريبة السنة الجاية تكون جاهزة وما ترجع تتراكم عليك مثل الحالية.</p>"+'<div class="rows"><div class="row"><div></div><div class="what">المفروض تجنّبه لين اليوم</div><div class="amt">'+M(taxOwedToDate())+'</div></div><div class="row"><div></div><div class="what">جنّبت</div><div class="amt">'+M(taxSetAside())+'</div></div><div class="row"><div></div><div class="what">محجوز الحين في المخصص</div><div class="amt">'+M(held)+'</div></div><div class="row"><div></div><div class="what">نقدك المتاح</div><div class="amt">'+M(free)+"</div></div></div>"+(sh>0.5?"<form>"+field("جنّب الحين","amt",Math.min(sh,free))+actionsRow("جنّب"):'<div class="note good">أنت مجنّب كل المطلوب لين اليوم.</div><div class="btns" style="justify-content:flex-end"><button class="btn" data-a="close">إغلاق</button></div>')+(sh>0.5?"</form>":""),fd=>{
+    const x=num(fd.amt);if(x<=0){toast("اكتب المبلغ");return false}
+    S.reserves.push({id:uid(),date:todayStr(),amount:x,kind:"in",purpose:TAX});done("تجنّب "+money(x)+" للضريبة")})}
 function lineSheet(l){
+  if(l.kind==="tax"){taxSheet();return}
   const it=byId(l.item),ym=l.for,t=todayStr();if(!it)return;
   if(FUNDK.has(l.kind)){fundLineSheet(l,it);return}
   const kindName={bill:"مصروف ثابت",budget:"ميزانية المعيشة",min:"قسط "+(l.no||"")+" من "+(l.total||"")+(l.thenClose?" ثم إقفال من الصندوق في "+mName(l.thenClose):""),full:"دين شخصي · دفعة كاملة",exc:"دفعة استثنائية"}[l.kind]||"";
@@ -943,8 +1105,7 @@ function closeNowSheet(id){
     if(x>need+0.5){toast("المبلغ أكبر من الباقي ("+money(need)+")");return false}
     const d=fd.date||todayStr();
     /* the money leaves the fund and goes to the debt (or the goal's bill) */
-    S.reserves.push({id:uid(),date:d,amount:x,kind:"out",purpose:FUND,note:it.name});
-    S.payments.push({id:uid(),item:it.id,amount:x,date:d,note:"من صندوق السداد",ptype:"exceptional",closeFund:true});
+    fundPay(it,x,d);
     const closed=curBal(it)<=0.5;
     persist();closeSheet(true);render();
     toast(closed?(goal?"تم: "+it.name+" من الصندوق":"قفلت "+it.name+"!"+(num(it.amount)>0?" قسطه "+money(it.amount)+" بالشهر صار يروح للصندوق.":"")):"انسجلت "+money(x)+" من الصندوق · باقي "+money(curBal(it)),5000)});
@@ -1003,7 +1164,7 @@ function surplusSheet(mandYm){
   f.addEventListener("input",upd);f.addEventListener("change",upd);upd()}
 function useReserveSheet(){
   const rp=reserveByPurpose(),keys=Object.keys(rp).filter(k=>rp[k]>0.5);if(!keys.length)return;
-  openSheet('<h2>استخدم من الاحتياطي</h2><form><div class="fields"><div class="field"><label for="f_from">من</label><select id="f_from" name="from">'+keys.map(k=>"<option value=\""+esc(k)+"\">"+esc(k)+" ("+money(rp[k])+")</option>").join("")+"</select></div>"+field("المبلغ","amt","")+'</div><div class="field"><label for="f_to">إلى</label><select id="f_to" name="to"><option value="">رجّعه للنقد المتاح</option><option value="@fund">صندوق السداد</option>'+debtOptions()+"</select></div>"+actionsRow("تنفيذ")+"</form>",fd=>{
+  openSheet('<h2>استخدم من الاحتياطي</h2><form><div class="fields"><div class="field"><label for="f_from">من</label><select id="f_from" name="from">'+keys.map(k=>"<option value=\""+esc(k)+"\">"+esc(purposeName(k))+" ("+money(rp[k])+")</option>").join("")+"</select></div>"+field("المبلغ","amt","")+'</div><div class="field"><label for="f_to">إلى</label><select id="f_to" name="to"><option value="">رجّعه للنقد المتاح</option><option value="@fund">صندوق السداد</option>'+debtOptions()+"</select></div>"+actionsRow("تنفيذ")+"</form>",fd=>{
     const a=num(fd.amt);if(a<=0||a>rp[fd.from]+0.5){toast("المبلغ لازم يكون بين 1 و "+money(rp[fd.from]));return false}
     const t=todayStr();
     if(fd.to==="@fund"){if(fd.from===FUND){toast("هذا هو الصندوق نفسه");return false}S.reserves.push({id:uid(),date:t,amount:a,kind:"out",purpose:fd.from});S.reserves.push({id:uid(),date:t,amount:a,kind:"in",purpose:FUND});done("انتقل "+money(a)+" للصندوق");afterFund();return}
@@ -1021,6 +1182,71 @@ function settleSheet(id){
     const pay={id:uid(),item:it.id,amount:st,date:d,note:"تسوية"+(fromFund?" من الصندوق":""),ptype:"exceptional",closeFund:fromFund};
     S.payments.push(pay);const fg=applySettle(it,pay,bal);
     done("تمت التسوية: قفلت "+it.name+" بـ "+money(st)+" وسقط عنك "+money(fg))})}
+const CRES={"":"— بدون نتيجة محددة —",agree:"وافقوا على اتفاقية أقساط",settle:"عرضوا تسوية بمبلغ أقل",cancel:"ألغوا الاتفاقية",refuse:"رفضوا",wait:"وعدوا يردون عليّ"};
+function contactsCard(d){
+  const t=todayStr(),cs=(S.contacts||[]).filter(c=>c.item===d.id).sort((a,b)=>a.date<b.date?1:-1),aj=(S.adjusts||[]).filter(a=>a.item===d.id).sort((a,b)=>a.date<b.date?1:-1);
+  let h='<section class="card"><div class="card-h"><h2>التواصل والتفاوض</h2><div class="btns"><button class="btn small" data-a="scripts" data-id="'+d.id+'">صيغ جاهزة</button><button class="btn small" data-a="recon" data-id="'+d.id+'">طابق مع الكشف</button><button class="btn small primary" data-a="addcontact" data-id="'+d.id+'">+ سجّل اتصال</button></div></div>';
+  h+=cs.length?'<div class="rows">'+cs.map(c=>'<div class="row tap alert-row '+(c.next&&c.next<=t?"soon":"")+'" data-a="contact" data-cid="'+c.id+'"><div class="when"><b class="num">'+dDay(c.date)+"</b>"+MONTHS[+c.date.slice(5,7)-1]+'</div><div class="what"><div>'+esc(c.who||"اتصال")+(c.res?" · "+CRES[c.res]:"")+'</div><div class="small" style="font-weight:400">'+esc(c.what||"")+'</div><div class="chips">'+(c.next?'<span class="chip '+(c.next<=t?"late":"")+'">متابعة '+dLabel(c.next)+"</span>":"")+"</div></div><div></div></div>").join("")+"</div>":'<p class="small muted">سجّل كل اتصال معهم: مع مين تكلمت، وش قالوا، ووش وعدوك. لو اختلفتوا لاحقاً أو وصل الموضوع للقضاء، هذا السجل يثبت كلامك. ولما تختار النتيجة (وافقوا، عرضوا تسوية...) التطبيق يحدّث حالة الدين لحاله.</p>';
+  if(aj.length)h+='<p class="small muted">آخر مطابقة مع الكشف: '+dLabel(aj[0].date)+" "+aj[0].date.slice(0,4)+" · الرصيد "+money(aj[0].bal)+" ("+(aj[0].delta>=0?"زاد ":"نقص ")+money(Math.abs(aj[0].delta))+(aj[0].delta>0?" فوائد ورسوم":"")+")</p>";
+  return h+"</section>"}
+function contactSheet(itemId,cid){
+  const c=cid?(S.contacts||[]).find(x=>x.id===cid):{item:itemId,date:todayStr(),who:"",what:"",next:"",res:""};if(!c)return;
+  const d=byId(c.item);if(!d)return;
+  openSheet("<h2>"+(cid?"اتصال ":"سجّل اتصال: ")+esc(d.name)+'</h2><form><div class="fields">'+field("التاريخ","date",c.date,"date")+'<div class="field"><label for="f_who">مع مين (الاسم أو القسم)</label><input id="f_who" name="who" value="'+esc(c.who)+'"></div></div><div class="field"><label for="f_what">وش صار؟ وش قالوا ووش وعدوا؟</label><textarea id="f_what" name="what" rows="3">'+esc(c.what)+'</textarea></div><div class="field"><label for="f_res">النتيجة (التطبيق يحدّث حالة الدين حسبها)</label><select id="f_res" name="res">'+Object.keys(CRES).map(k=>'<option value="'+k+'"'+(c.res===k?" selected":"")+">"+CRES[k]+"</option>").join("")+'</select></div><div class="fields">'+field("مبلغ التسوية (لو عرضوا)","samt",c.samt||"")+field("موعد المتابعة أو انتهاء العرض","next",c.next||"","date")+"</div>"+actionsRow("حفظ",cid?'<button type="button" class="btn danger" id="delC">حذف</button>':"")+"</form>",fd=>{
+    if(!fd.date)return false;
+    const x=cid?c:{id:uid(),item:c.item};
+    Object.assign(x,{date:fd.date,who:fd.who.trim(),what:fd.what.trim(),res:fd.res,samt:num(fd.samt)||null,next:fd.next||""});
+    if(!cid){S.contacts=S.contacts||[];S.contacts.push(x)}
+    let extra="";
+    if(!isPersonal(d)){
+      if(fd.res==="agree"){d.agreed=true;extra=" · صار الدين عليه اتفاقية"}
+      else if(fd.res==="cancel"){d.agreed=false;extra=" · صار الدين بدون اتفاقية"}
+      else if(fd.res==="settle"&&num(fd.samt)>0){d.settle=num(fd.samt);d.settleUntil=fd.next||"";extra=" · انضاف عرض التسوية "+money(fd.samt)}}
+    done("انحفظ الاتصال"+extra)});
+  const del=$("#delC");if(del)del.onclick=()=>{S.contacts=S.contacts.filter(x=>x.id!==cid);done("انحذف")}}
+function reconSheet(id){
+  const d=byId(id);if(!d)return;const b=curBal(d);
+  openSheet("<h2>مطابقة مع كشف الحساب: "+esc(d.name)+'</h2><p class="small muted">اكتب الرصيد المكتوب في آخر كشف أو في تطبيق البنك. التطبيق يصحح رصيده، ويعتبر الفرق فوائد ورسوم.</p><div class="rows"><div class="row"><div></div><div class="what">الرصيد في التطبيق</div><div class="amt">'+M(b)+"</div></div></div><form>"+field("الرصيد الفعلي في الكشف","actual",Math.round(b*100)/100)+field("تاريخ الكشف","date",todayStr(),"date",'max="'+todayStr()+'"')+'<p class="small muted" id="rcNote"></p>'+actionsRow("طابق")+"</form>",fd=>{
+    const a=num(fd.actual);if(a<0)return false;const delta=Math.round((a-b)*100)/100;
+    d.balance=num(d.balance)+delta;d.recon=fd.date||todayStr();
+    S.adjusts=S.adjusts||[];S.adjusts.push({id:uid(),item:d.id,date:d.recon,delta,bal:a});
+    done(Math.abs(delta)<0.5?"الرصيد مطابق":"تصحّح الرصيد: "+(delta>0?"زاد ":"نقص ")+money(Math.abs(delta)))});
+  const f=$("#sheetRoot form"),upd=()=>{const dl=num(f.actual.value)-b;$("#rcNote").textContent=Math.abs(dl)<0.5?"مطابق.":dl>0?"الفرق "+money(dl)+" يعتبر فوائد ورسوم وينضاف على الدين.":"الرصيد الفعلي أقل بـ "+money(-dl)+". ينقص من الدين."};
+  f.addEventListener("input",upd);upd()}
+function scriptsSheet(id){
+  const d=byId(id);if(!d)return;const b=Math.round(curBal(d)),pay=Math.round(num(d.amount)||Math.max(50,b/36/10)*10),offer=Math.round(b*0.4/100)*100,day=d.day||1,nm=d.name,dt=todayStr();
+  const blocks=[
+   {t:"1. طلب اتفاقية أقساط",w:"تقولها بالتلفون أو ترسلها. المبلغ من قسطك في التطبيق ("+money(pay)+" بالشهر).",
+    fr:"Bonjour, je vous contacte au sujet de mon compte ("+nm+"). Je traverse une période financière difficile, mais je tiens à rembourser ma dette. Je peux payer "+pay+" $ par mois, le "+day+" de chaque mois. Pouvez-vous m'accorder une entente de paiement à ce montant et suspendre les démarches de recouvrement? J'aimerais recevoir cette entente par écrit, par courriel. Merci.",
+    en:"Hello, I am contacting you about my account ("+nm+"). I am going through financial hardship, but I want to repay my debt. I can pay $"+pay+" per month, on the "+day+" of each month. Can you set up a payment arrangement for this amount and put collection activity on hold? Please send me the arrangement in writing by email. Thank you."},
+   {t:"2. عرض تسوية (مبلغ واحد أقل وتقفل الدين)",w:"ابدأ بعرض منخفض ("+money(offer)+" ≈ 40٪ من "+money(b)+")، وهم يطلبون أكثر. لا تدفع قبل الرد المكتوب.",
+    fr:"Bonjour, concernant mon compte ("+nm+"), dont le solde est d'environ "+b+" $. Je ne suis pas en mesure de rembourser la totalité, mais je peux offrir un paiement unique de "+offer+" $ en règlement complet et final de cette dette. Si vous acceptez, je vous demande une confirmation écrite indiquant que ce paiement règle le compte en entier, avant que j'effectue le paiement. Merci.",
+    en:"Hello, regarding my account ("+nm+"), with a balance of about $"+b+". I am not able to repay the full amount, but I can offer a one-time payment of $"+offer+" as full and final settlement of this debt. If you accept, I need written confirmation that this payment settles the account in full before I make the payment. Thank you."},
+   {t:"3. طلب تأكيد مكتوب بعد أي اتفاق بالتلفون",w:"أرسلها بالإيميل نفس اليوم.",
+    fr:"Bonjour, à la suite de notre conversation du "+dt+" au sujet de mon compte ("+nm+"), pouvez-vous me confirmer par écrit les modalités convenues : le montant, les dates de paiement et l'arrêt des démarches de recouvrement? Merci.",
+    en:"Hello, following our conversation on "+dt+" about my account ("+nm+"), please confirm in writing the terms we agreed: the amount, the payment dates, and that collection activity will stop. Thank you."}];
+  openSheet("<h2>صيغ جاهزة: "+esc(nm)+'</h2><p class="small muted">الأرقام مأخوذة من بياناتك. عدّلها لو تبي قبل النسخ. وبعد أي اتصال سجّله في "سجّل اتصال".</p>'+blocks.map((x,i)=>"<h3>"+x.t+'</h3><p class="small muted">'+x.w+'</p><div class="field"><label>فرنسي</label><textarea id="sc_fr'+i+'" rows="5" style="direction:ltr;text-align:left">'+esc(x.fr)+'</textarea></div><div class="btns"><button type="button" class="btn small" data-a="copy" data-t="sc_fr'+i+'">نسخ الفرنسي</button></div><div class="field"><label>إنجليزي</label><textarea id="sc_en'+i+'" rows="5" style="direction:ltr;text-align:left">'+esc(x.en)+'</textarea></div><div class="btns"><button type="button" class="btn small" data-a="copy" data-t="sc_en'+i+'">نسخ الإنجليزي</button></div>').join("")+'<div class="btns" style="justify-content:flex-end"><button class="btn" data-a="close">إغلاق</button></div>')}
+/* ---------- privacy lock (this device only) ---------- */
+const PINKEY="sadad-pin";
+const pinHash=x=>{let h=5381;const z="sadad:"+x;for(let i=0;i<z.length;i++)h=((h<<5)+h+z.charCodeAt(i))>>>0;return String(h)};
+const pinGet=()=>{try{return localStorage.getItem(PINKEY)||""}catch(e){return""}};
+let hiddenAt=0;
+function lockNow(){
+  if(!pinGet()||$("#lock"))return;
+  const d=document.createElement("div");d.id="lock";
+  d.innerHTML='<form><h2>دفتر السداد</h2><p>اكتب الرمز السري</p><input id="lockIn" type="password" inputmode="numeric" autocomplete="off" maxlength="8" aria-label="الرمز السري"><button class="btn">فتح</button><p class="small" id="lockMsg"></p></form>';
+  document.body.appendChild(d);
+  d.querySelector("form").addEventListener("submit",e=>{e.preventDefault();const i=$("#lockIn");if(pinHash(i.value)===pinGet())d.remove();else{$("#lockMsg").textContent="الرمز غير صحيح";i.value=""}});
+  setTimeout(()=>{const i=$("#lockIn");if(i)i.focus()},150)}
+function pinSheet(){
+  const has=!!pinGet();
+  openSheet("<h2>قفل التطبيق</h2>"+'<p class="small muted">رمز من 4 إلى 8 أرقام يُطلب كل ما تفتح التطبيق على هذا الجهاز. لو نسيته: احذف التطبيق وثبّته من جديد، واربط المزامنة فترجع بياناتك.</p><form>'+(has?field("الرمز الحالي","cur","","password",'inputmode="numeric" autocomplete="off"'):"")+field(has?"الرمز الجديد (اتركه فاضي لإلغاء القفل)":"الرمز","p1","","password",'inputmode="numeric" autocomplete="off" maxlength="8"')+field("أعد كتابة الرمز","p2","","password",'inputmode="numeric" autocomplete="off" maxlength="8"')+actionsRow("حفظ")+"</form>",fd=>{
+    if(has&&pinHash(fd.cur)!==pinGet()){toast("الرمز الحالي غير صحيح");return false}
+    if(!fd.p1&&has){try{localStorage.removeItem(PINKEY)}catch(e){}closeSheet(true);render();toast("انلغى القفل");return false}
+    if(!/^[0-9]{4,8}$/.test(fd.p1)){toast("الرمز لازم يكون 4 إلى 8 أرقام");return false}
+    if(fd.p1!==fd.p2){toast("الرمزين ما يتطابقون");return false}
+    try{localStorage.setItem(PINKEY,pinHash(fd.p1))}catch(e){toast("ما قدرت أحفظ الرمز");return false}
+    closeSheet(true);render();toast("تفعّل القفل على هذا الجهاز");return false})}
 function paidSheet(pid){
   const p=S.payments.find(x=>x.id===pid);if(!p)return;const it=byId(p.item),inf=PINFO[pid]||{};
   openSheet("<h2>دفعة "+esc(it?it.name:"")+'</h2><p class="muted">'+dLabel(p.date)+" "+p.date.slice(0,4)+" · "+M(p.amount)+(isDebt(it)?" · "+(p.closeFund?"من الصندوق":p.ptype==="exceptional"?"دفعة استثنائية":"قسط رقم "+inf.no)+" · الباقي بعدها "+M(inf.balAfter):"")+(p.note?" · "+esc(p.note):"")+'</p><div class="menu"><button class="btn danger" data-a="delpay">حذف هذي الدفعة</button><button class="btn" data-a="close">إغلاق</button></div>');
@@ -1032,9 +1258,9 @@ function itemSheet(id,kind){
   const isNew=!id,bill=it.kind==="bill",goal=isGoal(it),pers=isPersonal(it);
   let f="<h2>"+(isNew?(bill?"مصروف ثابت جديد":goal?"هدف جديد من الصندوق":pers?"دين شخصي جديد":"دين بأقساط جديد"):esc(it.name))+'</h2><form><div class="field"><label for="f_name">الاسم</label><input id="f_name" name="name" required value="'+esc(it.name)+'"></div>';
   if(bill)f+='<div class="fields">'+field(it.fromDaily?"الميزانية بالشهر":"المبلغ","amount",it.amount)+(it.fromDaily?"":field("يوم الدفع في الشهر","day",it.day,"number",'min="1" max="31"'))+'</div><div class="field"><label for="f_freq">التكرار</label><select id="f_freq" name="freq">'+[["monthly","كل شهر"],["bimonthly","كل شهرين"],["yearly","كل سنة"],["once","مرة واحدة"]].map(([v,l])=>'<option value="'+v+'"'+(it.freq===v?" selected":"")+">"+l+"</option>").join("")+'</select></div><div class="fields">'+field("يبدأ من شهر","start",it.start||ym,"month")+field("ينتهي في شهر (اختياري)","end",it.end||"","month")+"</div>"+(it.fromDaily?'<p class="small muted">تنخصم تلقائياً من خانة "الأكل والشرب" في اليومية.</p>':"");
-  else if(goal)f+='<div class="note info">هدف يندفع من صندوق السداد لما يجي دوره في الترتيب، مثل تصليح أو مصروف كبير.</div><div class="fields">'+field("المبلغ المطلوب","target",it.target)+field("انصرف منه","spentv",isNew?0:paidBy(it.id),"number","readonly")+"</div>";
+  else if(goal)f+='<div class="note info">هدف يندفع من صندوق السداد لما يجي دوره في الترتيب، مثل تصليح أو مصروف كبير.</div><div class="fields">'+field("المبلغ المطلوب","target",it.target)+field(it.save?"تجمّع فيه":"انصرف منه","spentv",isNew?0:(it.save?resOf("save:"+it.id):paidBy(it.id)),"number","readonly")+'</div><label class="check"><input type="checkbox" name="save"'+(it.save?" checked":"")+"> هدف ادخار: المبلغ يبقى محجوز لك (طوارئ، عائلة، مدارس) وما ينصرف</label>";
   else if(pers)f+='<div class="note info">دين شخصي: يندفع مرة وحدة كامل في تاريخه، وما ياخذ دفعات جزئية.</div><div class="fields">'+field("المبلغ الباقي","cur",isNew?"":Math.round(curBal(it)))+field("تاريخ الدفعة الكاملة","due",it.due,"date")+"</div>"+'<div class="field"><label for="f_risk">خطورة الدين (المستشار يقدّم الأخطر)</label><select id="f_risk" name="risk">'+[3,2,1].map(v=>'<option value="'+v+'"'+((isNew?2:riskOf(it))===v?" selected":"")+">"+RISKN[v]+(v===3?" — تحصيل، حجز، أو سحب السيارة":v===1?" — بدون ضغط":"")+"</option>").join("")+"</select></div>";
-  else f+='<div class="fields">'+field("الرصيد الباقي الآن","cur",isNew?"":Math.round(curBal(it)))+field("القسط الشهري (صفر = بدون قسط ثابت)","amount",it.amount)+field("يوم الدفع في الشهر","day",it.day,"number",'min="1" max="31"')+field("القسط يبدأ من شهر (اختياري)","start",it.start||"","month")+field("الفائدة السنوية % (اختياري)","rate",it.rate||"")+"</div>"+'<div class="field"><label for="f_agr">اتفاقية السداد</label><select id="f_agr" name="agr"><option value="1"'+((isNew||agreedOf(it))?" selected":"")+'>فيه اتفاقية أقساط ماشية</option><option value="0"'+((!isNew&&!agreedOf(it))?" selected":"")+'>ما فيه اتفاقية (ما وافقوا، أو ألغوها)</option></select></div><label class="check"><input type="checkbox" name="legal"'+(!isNew&&legalOf(it)?" checked":"")+'> عليه إنذار قانوني أو عند شركة تحصيل</label><div class="fields">'+field("موعد نهائي (اختياري)","deadline",isNew?"":rawDead(it),"date")+field("عرض تسوية: المبلغ (اختياري)","settle",it.settle||"")+field("عرض التسوية صالح لين (اختياري)","settleUntil",it.settleUntil||"","date")+"</div>"+'<div class="field"><label for="f_risk">خطورة الدين (المستشار يقدّم الأخطر)</label><select id="f_risk" name="risk">'+[3,2,1].map(v=>'<option value="'+v+'"'+((isNew?2:riskOf(it))===v?" selected":"")+">"+RISKN[v]+(v===3?" — تحصيل، حجز، أو سحب السيارة":v===1?" — بدون ضغط":"")+"</option>").join("")+"</select></div>";
+  else f+='<div class="fields">'+field("الرصيد الباقي الآن","cur",isNew?"":Math.round(curBal(it)))+field("القسط الشهري (صفر = بدون قسط ثابت)","amount",it.amount)+field("يوم الدفع في الشهر","day",it.day,"number",'min="1" max="31"')+field("القسط يبدأ من شهر (اختياري)","start",it.start||"","month")+field("الفائدة السنوية %"+(it.rateEst?" (تقدير — صحّحها من الكشف)":""),"rate",it.rate||"")+"</div>"+'<div class="field"><label for="f_agr">اتفاقية السداد</label><select id="f_agr" name="agr"><option value="1"'+((isNew||agreedOf(it))?" selected":"")+'>فيه اتفاقية أقساط ماشية</option><option value="0"'+((!isNew&&!agreedOf(it))?" selected":"")+'>ما فيه اتفاقية (ما وافقوا، أو ألغوها)</option></select></div><label class="check"><input type="checkbox" name="legal"'+(!isNew&&legalOf(it)?" checked":"")+'> عليه إنذار قانوني أو عند شركة تحصيل</label><div class="fields">'+field("موعد نهائي (اختياري)","deadline",isNew?"":rawDead(it),"date")+field("عرض تسوية: المبلغ (اختياري)","settle",it.settle||"")+field("عرض التسوية صالح لين (اختياري)","settleUntil",it.settleUntil||"","date")+"</div>"+'<div class="field"><label for="f_risk">خطورة الدين (المستشار يقدّم الأخطر)</label><select id="f_risk" name="risk">'+[3,2,1].map(v=>'<option value="'+v+'"'+((isNew?2:riskOf(it))===v?" selected":"")+">"+RISKN[v]+(v===3?" — تحصيل، حجز، أو سحب السيارة":v===1?" — بدون ضغط":"")+"</option>").join("")+"</select></div>";
   f+=actionsRow(isNew?"إضافة":"حفظ",isNew||it.fromDaily?"":'<button type="button" class="btn danger" id="delItem">حذف</button>')+"</form>";
   openSheet(f,fd=>{
     if(!fd.name.trim()){toast("اكتب اسم");return false}
@@ -1042,10 +1268,10 @@ function itemSheet(id,kind){
     if(x.kind==="debt"&&x.dtype==null)x.dtype="installment";
     x.name=fd.name.trim();
     if(bill){x.amount=num(fd.amount);if(!x.fromDaily)x.day=Math.min(31,Math.max(1,Math.round(num(fd.day))||1));x.freq=fd.freq;x.start=fd.start||ym;x.end=fd.end||null}
-    else if(goal){x.target=num(fd.target)}
+    else if(goal){x.target=num(fd.target);x.save=!!fd.save}
     else if(pers){if(!fd.due){toast("حدد التاريخ");return false}x.due=fd.due;x.balance=num(fd.cur)+(isNew?0:paidBy(x.id))}
     else{x.amount=num(fd.amount);x.day=Math.min(31,Math.max(1,Math.round(num(fd.day))||1));x.start=fd.start||null;x.balance=num(fd.cur)+(isNew?0:paidBy(x.id))}
-    if(x.kind==="debt"){x.risk=+fd.risk||2;if(!isPersonal(x)){x.rate=num(fd.rate)||null;x.agreed=fd.agr==="1";x.legal=!!fd.legal;x.deadline=fd.deadline||"";x.settle=num(fd.settle)||null;x.settleUntil=fd.settleUntil||""}}
+    if(x.kind==="debt"){x.risk=+fd.risk||2;if(!isPersonal(x)){if(num(fd.rate)!==num(x.rate))x.rateEst=false;x.rate=num(fd.rate)||null;x.agreed=fd.agr==="1";x.legal=!!fd.legal;x.deadline=fd.deadline||"";x.settle=num(fd.settle)||null;x.settleUntil=fd.settleUntil||""}}
     if(isNew){S.items.push(x);if(!bill)S.order.push(x.id)}
     done(isNew?"انضاف":"انحفظ")});
   const del=$("#delItem");if(del)del.onclick=()=>confirmSheet("تحذف "+it.name+"؟ تنحذف دفعاته المسجلة كمان.","حذف",()=>{S.items=S.items.filter(x=>x.id!==id);S.order=S.order.filter(x=>x!==id);S.payments=S.payments.filter(p=>p.item!==id);S.planned=S.planned.filter(p=>p.item!==id);Object.keys(S.overrides).forEach(x=>{if(x.startsWith(id+"|"))delete S.overrides[x]});done("انحذف")})}
@@ -1061,14 +1287,15 @@ function settingsSheet(){
   openSheet('<h2>الدخل والصندوق</h2><form><h3>خطة الدخل</h3><div class="fields">'+field("متوسط الدخل لليوم (صافي بعد البنزين)","daily",st.dailyAvg)+field("أيام الشغل بالشهر","wd",st.workdays,"number",'min="1" max="31"')+'</div><p class="small muted" id="planM"></p>'+
     '<div class="field"><label>دخل متوقع لأشهر محددة (فاضي = الخطة)</label><div class="fields">'+months.map(m=>field(mName(m),"m_"+m,ibm[m]??"")).join("")+"</div></div>"+
     '<div class="field"><label for="f_mode">الخطة تحسب الدخل من</label><select id="f_mode" name="mode"><option value="plan"'+(st.incomeMode!=="actual"?" selected":"")+'>الخطة فوق</option><option value="actual"'+(st.incomeMode==="actual"?" selected":"")+'>متوسط يومياتي الفعلية (آخر 30 يوم)</option></select><span class="small muted">'+(a?"معدلك الفعلي ~"+money(a.month)+" بالشهر قبل الأكل"+(a.days<7?" (يحتاج 7 أيام على الأقل)":""):"ما فيه يوميات بعد")+"</span></div>"+
-    '<h3>صندوق السداد</h3><div class="field"><label for="f_fm">طريقة الصندوق</label><select id="f_fm" name="fm"><option value="close"'+(F.mode!=="chunk"?" selected":"")+'>يجمع لين يقفل الدين كامل</option><option value="chunk"'+(F.mode==="chunk"?" selected":"")+">يدفع على الدين كل ما يوصل مبلغ معين</option></select></div><div class=\"fields\">"+field("المبلغ اللي يدفع عنده","chunk",F.chunk)+field("يبقى في الصندوق دائماً (طوارئ)","keep",F.keep)+field("يوم الإقفال في الشهر","fday",F.day||28,"number",'min="1" max="31"')+field("النقد يوم بداية الخطة","cash",S.startCash)+"</div>"+actionsRow()+"</form>",fd=>{
+    '<h3>صندوق السداد</h3><div class="field"><label for="f_fm">طريقة الصندوق</label><select id="f_fm" name="fm"><option value="close"'+(F.mode!=="chunk"?" selected":"")+'>يجمع لين يقفل الدين كامل</option><option value="chunk"'+(F.mode==="chunk"?" selected":"")+">يدفع على الدين كل ما يوصل مبلغ معين</option></select></div><div class=\"fields\">"+field("المبلغ اللي يدفع عنده","chunk",F.chunk)+field("يبقى في الصندوق دائماً (طوارئ)","keep",F.keep)+field("يوم الإقفال في الشهر","fday",F.day||28,"number",'min="1" max="31"')+field("النقد يوم بداية الخطة","cash",S.startCash)+"</div>"+'<h3>التشغيل التلقائي</h3><label class="check"><input type="checkbox" name="autofund"'+(autoOn("fund")?" checked":"")+'> حوّل فائض كل شهر لصندوق السداد لحاله</label><label class="check"><input type="checkbox" name="autotax"'+(autoOn("tax")?" checked":"")+'> جنّب نسبة الضريبة من دخلي لحاله</label>'+'<h3>مخصص الضريبة</h3><div class="fields">'+field("نسبة التجنيب من الدخل % (صفر = إيقاف)","taxp",taxCfg().pct)+field("يبدأ من شهر","taxs",taxCfg().start||ym,"month")+'</div><p class="small muted">تقدير للتجنيب، مو حساب ضريبي. اسأل محاسبك عن النسبة المناسبة لك.</p>'+actionsRow()+"</form>",fd=>{
+    st.tax={pct:Math.min(60,Math.max(0,num(fd.taxp))),start:fd.taxs||ym};st.auto={fund:!!fd.autofund,tax:!!fd.autotax};
     st.dailyAvg=num(fd.daily);st.workdays=Math.min(31,Math.max(1,Math.round(num(fd.wd))||26));st.incomeMode=fd.mode;S.startCash=num(fd.cash);
     st.fund={mode:fd.fm,chunk:Math.max(100,num(fd.chunk)||2000),keep:Math.max(0,num(fd.keep)),day:Math.min(31,Math.max(1,Math.round(num(fd.fday))||28))};
     months.forEach(m=>{const v=fd["m_"+m];if(v===""||v==null)delete ibm[m];else ibm[m]=num(v)});done("انحفظت الإعدادات")});
   const f=$("#sheetRoot form"),upd=()=>{$("#planM").textContent="= "+money(num(f.daily.value)*num(f.wd.value))+" بالشهر"};f.addEventListener("input",upd);upd()}
 function dayEditSheet(d){
   const e=S.entries[d];if(!e)return;
-  openSheet("<h2>يومية "+dLabel(d)+" "+d.slice(0,4)+'</h2><form><div class="fields">'+field("الدخل","inc",e.inc)+field("البنزين","fuel",e.fuel)+field("الأكل والشرب","food",e.food)+field("مصاريف ثانية","other",e.other)+'</div><div class="field"><label for="f_note2">ملاحظة</label><input id="f_note2" name="note" value="'+esc(e.note||"")+'"></div>'+actionsRow("حفظ",'<button type="button" class="btn danger" id="delDay">حذف اليوم</button>')+"</form>",fd=>{S.entries[d]={inc:num(fd.inc),fuel:num(fd.fuel),food:num(fd.food),other:num(fd.other),note:fd.note||""};done("انحفظت اليومية")});
+  openSheet("<h2>يومية "+dLabel(d)+" "+d.slice(0,4)+'</h2><form><div class="fields">'+field("الدخل","inc",e.inc)+field("البنزين","fuel",e.fuel)+field("الأكل والشرب","food",e.food)+field("مصاريف ثانية","other",e.other)+field("ساعات الشغل","hrs",e.hrs??"")+'</div><div class="field"><label for="f_note2">ملاحظة</label><input id="f_note2" name="note" value="'+esc(e.note||"")+'"></div>'+actionsRow("حفظ",'<button type="button" class="btn danger" id="delDay">حذف اليوم</button>')+"</form>",fd=>{S.entries[d]={inc:num(fd.inc),fuel:num(fd.fuel),food:num(fd.food),other:num(fd.other),hrs:num(fd.hrs),note:fd.note||""};done("انحفظت اليومية")});
   $("#delDay").onclick=()=>confirmSheet("تحذف يومية "+dLabel(d)+"؟","حذف",()=>{delete S.entries[d];done("انحذفت اليومية")})}
 function exportData(){
   const txt=JSON.stringify(S);
@@ -1083,12 +1310,14 @@ function tab(){const h=location.hash.slice(1);return VIEWS[h]?h:"home"}
 let prompting=false,snooze=0;
 function render(){
   SIM=simulate({fund:true});SIM0=simulate({fund:false});
+  const autoMsg=autoRun();
+  if(autoMsg!==null){SIM=simulate({fund:true});SIM0=simulate({fund:false});if(autoMsg)setTimeout(()=>{toast("تلقائي: "+autoMsg,5000);const ad=advise();if(ad&&ad.type!=="keep"&&!adviceSnoozed()&&!$("#sheetRoot .sheet"))adviceSheet()},400)}
   const a=avgDaily();PACE=a&&a.days>=7&&S.settings.incomeMode!=="actual"?simulate({fund:true,rate:a}):null;
   PINFO=payInfo();
   const t=tab(),res=reserveBal();$("#topCash").textContent=money(cashNow());$("#topRes").hidden=res<=0.5;$("#topResV").textContent=money(res);
   document.querySelectorAll("#tabs a").forEach(x=>{if(x.dataset.tab===t)x.setAttribute("aria-current","page");else x.removeAttribute("aria-current")});
   ALERTS=buildAlerts();{const bn=$("#bellN"),bl=$(".top .bell");bn.hidden=!ALERTS.length;bn.textContent=ALERTS.length;if(t==="alerts")bl.setAttribute("aria-current","page");else bl.removeAttribute("aria-current")}
-  lineIndex=[];$("#view").innerHTML=syncBanner()+VIEWS[t]();if(t==="day")wireDay();
+  lineIndex=[];$("#view").innerHTML=syncBanner()+VIEWS[t]();if(t==="day")wireDay();if(t==="reports"&&repMode==="whatif")wireWhatIf();
   pushReminders();
   const need=decisionYm();
   if(need&&!prompting&&Date.now()>snooze&&!$("#sheetRoot .sheet")){prompting=true;setTimeout(()=>{prompting=false;if(decisionYm()&&!$("#sheetRoot .sheet"))surplusSheet(decisionYm())},250)}}
@@ -1109,6 +1338,19 @@ document.addEventListener("click",e=>{
     case"tofund":toFundNow();break;
     case"advice":adviceSheet();break;
     case"syncsetup":syncSheet();break;
+    case"pin":pinSheet();break;
+    case"addcontact":contactSheet(el.dataset.id);break;
+    case"contact":contactSheet(null,el.dataset.cid);break;
+    case"recon":reconSheet(el.dataset.id);break;
+    case"scripts":scriptsSheet(el.dataset.id);break;
+    case"copy":{const ta=document.getElementById(el.dataset.t);if(!ta)break;const ok=()=>toast("انتسخ النص");try{navigator.clipboard.writeText(ta.value).then(ok,()=>{ta.select();try{document.execCommand("copy");ok()}catch(e){toast("حدّد النص وانسخه يدوياً")}})}catch(e){ta.select();try{document.execCommand("copy");ok()}catch(e2){toast("حدّد النص وانسخه يدوياً")}}break}
+    case"snaprestore":{const sel=$("#snapSel");if(!sel)break;const k=sel.value;confirmSheet("ترجّع نسخة "+dLabel(k.slice(SNAP.length))+"؟ التعديلات اللي بعدها تروح.","رجّع النسخة",()=>{try{const o=JSON.parse(localStorage.getItem(k));if(!o||!o.items)throw 0;S=o;migrate();done("رجعت نسخة "+dLabel(k.slice(SNAP.length)))}catch(e){toast("ما قدرت أقرأ النسخة")}});break}
+    case"weekly":weeklySheet();break;
+    case"weekdone":S.weekSeen=weekKey();persist();closeSheet(true);render();break;
+    case"wireset":WI=null;render();break;
+    case"wiapply":if(WI){S.settings.dailyAvg=WI.daily;S.settings.workdays=WI.wd;const l=livingItem();if(l)l.amount=WI.living;S.settings.tax={pct:WI.tax,start:taxCfg().start||ymOf(todayStr())};persist();render();toast("اعتمدت الأرقام في خطتك · خالي من الديون "+dfText(debtFree(SIM)),4500)}break;
+    case"taxyear":taxYear=el.dataset.v;render();break;
+    case"taxnow":taxSheet();break;
     case"appupdate":toast("جاري التحديث...");(async()=>{try{if(window.caches){const ks=await caches.keys();await Promise.all(ks.map(k=>caches.delete(k)))}if(navigator.serviceWorker){const rs=await navigator.serviceWorker.getRegistrations();await Promise.all(rs.map(r=>r.update().catch(()=>{})))}}catch(e){}location.reload()})();break;
     case"viewmode":try{localStorage.setItem("sadad-view",el.dataset.v)}catch(e){}location.reload();break;
     case"syncnow":toast("جاري المزامنة...");syncNow(true);break;
@@ -1143,7 +1385,9 @@ setInterval(()=>{if(!document.hidden)syncNow(false)},60000);
 document.addEventListener("visibilitychange",()=>{if(!document.hidden)syncNow(false)});
 window.addEventListener("online",()=>{render();syncNow(false)});
 window.addEventListener("offline",()=>{if(!$("#sheetRoot .sheet"))render()});
+document.addEventListener("visibilitychange",()=>{if(document.hidden)hiddenAt=Date.now();else if(hiddenAt&&Date.now()-hiddenAt>120000)lockNow()});
 migrate();PREV=recIndex(S);
+lockNow();
 render();
 syncNow(false);
 if("serviceWorker" in navigator&&location.protocol.startsWith("http"))navigator.serviceWorker.register("sw.js").catch(()=>{});
