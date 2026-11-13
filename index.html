@@ -236,7 +236,7 @@ const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 const num=v=>{const n=parseFloat(String(v??"").replace(/,/g,""));return isFinite(n)?n:0};
 const sum=(a,f)=>a.reduce((s,x)=>s+f(x),0);
 const FUND="صندوق السداد";
-const APPV="2.1.2";
+const APPV="2.1.3";
 const TAX="مخصص الضريبة";
 
 /* ---------- storage + phone features (Android bridge, browser fallback) ---------- */
@@ -1361,7 +1361,8 @@ function exportData(){
   openSheet('<h2>نسخة احتياطية</h2><p class="small muted">انسخ النص كامل واحفظه عندك.</p><div class="field"><textarea id="expTxt" rows="8" readonly>'+esc(txt)+'</textarea></div><div class="btns" style="justify-content:flex-end"><button class="btn" data-a="close">إغلاق</button></div>');$("#expTxt").select()}
 function importData(){
   openSheet('<h2>استرجاع نسخة</h2><form><div class="field"><label for="f_imp">الصق نص النسخة الاحتياطية أو كود تحديث الخطة</label><textarea id="f_imp" name="imp" rows="8" style="direction:ltr"></textarea></div><div class="field"><label for="f_file">أو اختر الملف مباشرة</label><input id="f_file" type="file" accept=".txt,.json,text/plain,application/json"></div><p class="small muted">النسخة الاحتياطية تستبدل البيانات الحالية. كود التحديث يعدّل الخطة فقط ويبقي يومياتك ودفعاتك.</p>'+actionsRow("استرجاع")+"</form>",fd=>{try{let tx=String(fd.imp||"").replace(/[\u201C\u201D\u201E\u2033]/g,'"').replace(/^[^{]*/,"").replace(/[^}]*$/,"");if(!tx){toast("ما فيه نص. الصق الكود أو اختر الملف");return false}let o;try{o=JSON.parse(tx)}catch(e){toast("النص ناقص أو مقطوع ("+tx.length+" حرف). انسخه كامل أو اختر الملف",6000);return false}if(o.sadadUpdate){if(applySpec(o))done("تطبّق تحديث الخطة ("+o.sadadUpdate+")");else{closeSheet(true);toast("هذا التحديث مطبّق من قبل")}return false}if(!o.items||!o.order)throw 0;S=o;S.updatedAt=Date.now();Store.save(S);location.reload()}catch(e){toast("النص هذا مو نسخة صحيحة");return false}});
-  const fi=$("#f_file");if(fi)fi.onchange=()=>{const f=fi.files&&fi.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{$("#f_imp").value=String(r.result||"");toast("انقرأ الملف، اضغط استرجاع")};r.readAsText(f)}}
+  const fi=$("#f_file");if(fi)fi.onchange=()=>{const f=fi.files&&fi.files[0];if(!f)return;const ok=x=>{x=String(x||"");$("#f_imp").value=x;toast(x.length?"انقرأ الملف ("+x.length+" حرف)، اضغط استرجاع":"الملف فاضي (حجمه "+f.size+"). استخدم النسخ واللصق",6000)},bad=()=>toast("ما قدرت أقرأ الملف. استخدم النسخ واللصق",6000);
+    try{if(f.text)f.text().then(ok,bad);else{const r=new FileReader();r.onload=()=>ok(r.result);r.onerror=bad;r.readAsText(f)}}catch(e){bad()}}}
 
 /* ---------- routing & events ---------- */
 const VIEWS={alerts:viewAlerts,home:viewHome,plan:viewPlan,day:viewDay,debts:viewDebts,reports:viewReports};
