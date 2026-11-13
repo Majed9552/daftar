@@ -68,7 +68,7 @@ h3{font-size:15px;font-family:var(--font);font-weight:600}
 main{max-width:1040px;margin:0 auto;padding:16px max(16px,env(safe-area-inset-right)) calc(92px + env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));display:flex;flex-direction:column;gap:16px}
 .grid2{display:grid;grid-template-columns:1fr;gap:16px}
 @media (min-width:460px){.grid2{grid-template-columns:1fr 1fr}}
-@media (min-width:460px) and (max-width:700px){.home2{gap:6px}.home2 .card{padding:10px;gap:8px}.home2 .card-h h2{font-size:16px}.home2 .row{padding:6px 0;gap:6px}.home2 .row.soon,.home2 .row.over,.home2 .row.paid{padding:6px 8px}.home2 .row .when{min-width:34px;font-size:11px}.home2 .row .when b{font-size:15px}.home2 .chip{font-size:10.5px;padding:0 6px}.home2 .chip.bal{display:none}.home2 .balx{display:block;font-size:10px;font-weight:700;color:#00A34A;white-space:nowrap;line-height:1.2;margin-top:1px}.home2 .row.soon .balx,.home2 .row.over .balx{color:#E0142B}.home2 .row.paid .balx{color:#00803A}.home2 .legend{font-size:10.5px;gap:2px 8px}.home2 .big{font-size:26px}.home2 .note{padding:8px 10px}.home2 .btn{padding:9px 8px}}
+@media (min-width:460px) and (max-width:700px){.home2{gap:6px}.home2 .card{padding:10px;gap:8px}.home2 .card-h h2{font-size:16px}.home2 .row{padding:6px 0;gap:6px}.home2 .row.soon,.home2 .row.over,.home2 .row.paid{padding:6px 8px}.home2 .row .when{min-width:34px;font-size:11px}.home2 .row .when b{font-size:15px}.home2 .chip{font-size:10.5px;padding:0 6px}.home2 .chip.bal,.home2 .chip.hid,.home2 .row.paid .chips .chip:nth-child(n+2){display:none}.home2 .rows{gap:3px}.home2 h3{font-size:13px;margin:0}.home2 .chips{flex-wrap:nowrap!important;overflow:hidden;margin-top:2px!important}.home2 .chip{white-space:nowrap;flex:0 0 auto}.home2 .chip.exc{overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;min-width:0}.home2 .row{padding:4px 0}.home2 .row.soon,.home2 .row.over,.home2 .row.paid{padding:4px 8px}.home2 .row .what{min-width:0}.home2 .balx{display:block;font-size:10px;font-weight:700;color:#00A34A;white-space:nowrap;line-height:1.2;margin-top:1px}.home2 .row.soon .balx,.home2 .row.over .balx{color:#E0142B}.home2 .row.paid .balx{color:#00803A}.home2 .legend{font-size:10.5px;gap:2px 8px}.home2 .big{font-size:26px}.home2 .note{padding:8px 10px}.home2 .btn{padding:9px 8px}}
 .balx{display:none}
 @media (prefers-color-scheme:dark) and (min-width:460px) and (max-width:700px){.home2 .balx{color:#3DDC84}}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;min-width:0;display:flex;flex-direction:column;gap:12px}
@@ -236,7 +236,7 @@ const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 const num=v=>{const n=parseFloat(String(v??"").replace(/,/g,""));return isFinite(n)?n:0};
 const sum=(a,f)=>a.reduce((s,x)=>s+f(x),0);
 const FUND="صندوق السداد";
-const APPV="2.2.3",APPN=223;
+const APPV="2.2.4",APPN=224;
 const TAX="مخصص الضريبة";
 
 /* ---------- storage + phone features (Android bridge, browser fallback) ---------- */
@@ -731,7 +731,7 @@ function lineChips(l,t,cur){
   else if(l.kind==="bill")c+='<span class="chip">مصروف ثابت</span>';
   else if(l.kind==="tax")c+='<span class="chip exc">تجنيب '+num(taxCfg().pct)+"% من الدخل</span>"+(l.for===cur&&taxShort()>0.5?'<span class="chip">لين اليوم '+money(taxShort())+"</span>":"");
   else if(l.kind==="budget")c+='<span class="chip">ميزانية '+money(l.budget)+'</span><span class="chip">صرفت '+money(l.spent)+" من اليوميات</span>"+(l.spent>l.budget+0.5?'<span class="chip short">زادت '+money(l.spent-l.budget)+"</span>":"");
-  else if(l.kind==="min")c+=(l.orig&&(byId(l.item)||{}).bi?'<span class="chip">قسط '+dLabel(l.orig)+"</span>":"")+'<span class="chip min">قسط '+l.no+" من "+l.total+(l.thenClose?" + إقفال":"")+"</span>"+((byId(l.item)||{}).critical?'<span class="chip late">حرج: لا تفوّت</span>':"")+(l.moved?'<span class="chip moved">مؤجّل من '+dLabel(l.orig)+"</span>":"");
+  else if(l.kind==="min")c+=(l.orig&&(byId(l.item)||{}).bi?'<span class="chip">قسط '+dLabel(l.orig)+"</span>":"")+'<span class="chip min'+(l.orig&&(byId(l.item)||{}).bi?" hid":"")+'">قسط '+l.no+" من "+l.total+(l.thenClose?" + إقفال":"")+"</span>"+((byId(l.item)||{}).critical?'<span class="chip late">حرج: لا تفوّت</span>':"")+(l.moved?'<span class="chip moved">مؤجّل من '+dLabel(l.orig)+"</span>":"");
   else if(l.kind==="full")c+='<span class="chip full">دين شخصي · دفعة كاملة</span>';
   else if(l.kind==="exc"){const pn=((S.planned||[]).find(x=>x.id===l.pid)||{}).note;c+='<span class="chip exc">'+esc(pn||"دفعة استثنائية")+"</span>"}
   else if(l.kind==="close")c+='<span class="chip fund">إقفال من الصندوق</span>';
