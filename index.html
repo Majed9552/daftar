@@ -68,7 +68,9 @@ h3{font-size:15px;font-family:var(--font);font-weight:600}
 main{max-width:1040px;margin:0 auto;padding:16px max(16px,env(safe-area-inset-right)) calc(92px + env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));display:flex;flex-direction:column;gap:16px}
 .grid2{display:grid;grid-template-columns:1fr;gap:16px}
 @media (min-width:460px){.grid2{grid-template-columns:1fr 1fr}}
-@media (min-width:460px) and (max-width:700px){.home2{gap:6px}.home2 .card{padding:10px;gap:8px}.home2 .card-h h2{font-size:16px}.home2 .row{padding:6px 0;gap:6px}.home2 .row.soon,.home2 .row.over,.home2 .row.paid{padding:6px 8px}.home2 .row .when{min-width:34px;font-size:11px}.home2 .row .when b{font-size:15px}.home2 .chip{font-size:10.5px;padding:0 6px}.home2 .chip.bal{display:none}.home2 .legend{font-size:10.5px;gap:2px 8px}.home2 .big{font-size:26px}.home2 .note{padding:8px 10px}.home2 .btn{padding:9px 8px}}
+@media (min-width:460px) and (max-width:700px){.home2{gap:6px}.home2 .card{padding:10px;gap:8px}.home2 .card-h h2{font-size:16px}.home2 .row{padding:6px 0;gap:6px}.home2 .row.soon,.home2 .row.over,.home2 .row.paid{padding:6px 8px}.home2 .row .when{min-width:34px;font-size:11px}.home2 .row .when b{font-size:15px}.home2 .chip{font-size:10.5px;padding:0 6px}.home2 .chip.bal{display:none}.home2 .balx{display:block;font-size:10px;font-weight:700;color:#00A34A;white-space:nowrap;line-height:1.2;margin-top:1px}.home2 .row.soon .balx,.home2 .row.over .balx{color:#E0142B}.home2 .row.paid .balx{color:#00803A}.home2 .legend{font-size:10.5px;gap:2px 8px}.home2 .big{font-size:26px}.home2 .note{padding:8px 10px}.home2 .btn{padding:9px 8px}}
+.balx{display:none}
+@media (prefers-color-scheme:dark) and (min-width:460px) and (max-width:700px){.home2 .balx{color:#3DDC84}}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;min-width:0;display:flex;flex-direction:column;gap:12px}
 .card.alert{border-color:var(--warn);background:var(--warn-soft)}
 .card.snow{border-color:var(--accent);box-shadow:inset 0 3px 0 var(--accent)}
@@ -234,7 +236,7 @@ const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 const num=v=>{const n=parseFloat(String(v??"").replace(/,/g,""));return isFinite(n)?n:0};
 const sum=(a,f)=>a.reduce((s,x)=>s+f(x),0);
 const FUND="صندوق السداد";
-const APPV="2.0.3";
+const APPV="2.0.4";
 const TAX="مخصص الضريبة";
 
 /* ---------- storage + phone features (Android bridge, browser fallback) ---------- */
@@ -687,7 +689,7 @@ function lineChips(l,t,cur){
   return c}
 function lineRow(l,t){
   const idx=lineIndex.push(l)-1,st=lineState(l,t),cur=ymOf(t);
-  return '<div class="row tap '+st+(FUNDK.has(l.kind)?" fundrow":"")+'" data-a="line" data-i="'+idx+'"><div class="when"><b class="num">'+dDay(l.date)+"</b>"+MONTHS[+l.date.slice(5,7)-1]+'</div><div class="what"><div>'+esc(l.name)+'</div><div class="chips">'+lineChips(l,t,cur)+'</div></div><div class="amt">'+M(l.amount)+"</div></div>"}
+  return '<div class="row tap '+st+(FUNDK.has(l.kind)?" fundrow":"")+'" data-a="line" data-i="'+idx+'"><div class="when"><b class="num">'+dDay(l.date)+"</b>"+MONTHS[+l.date.slice(5,7)-1]+'</div><div class="what"><div>'+esc(l.name)+'</div><div class="chips">'+lineChips(l,t,cur)+'</div></div><div class="amt">'+M(l.amount)+(l.balAfter!=null&&!l.skipped&&l.kind!=="goal"?'<small class="balx">الباقي '+money(l.balAfter)+"</small>":"")+"</div></div>"}
 function payRow(p){
   const it=byId(p.item),inf=PINFO[p.id]||{};let c='<span class="chip done">تم الدفع</span>';
   if(isDebt(it)){c+=p.closeFund?'<span class="chip fund">'+(inf.balAfter<=0.5?"إقفال من الصندوق":"دفعة من الصندوق")+"</span>":p.ptype==="exceptional"?'<span class="chip exc">دفعة استثنائية</span>':isPersonal(it)?'<span class="chip full">دفعة كاملة</span>':'<span class="chip min">قسط رقم '+inf.no+"</span>";c+='<span class="chip">الباقي بعدها '+money(inf.balAfter)+"</span>"}
