@@ -236,7 +236,7 @@ const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 const num=v=>{const n=parseFloat(String(v??"").replace(/,/g,""));return isFinite(n)?n:0};
 const sum=(a,f)=>a.reduce((s,x)=>s+f(x),0);
 const FUND="صندوق السداد";
-const APPV="2.2.2",APPN=222;
+const APPV="2.2.3",APPN=223;
 const TAX="مخصص الضريبة";
 
 /* ---------- storage + phone features (Android bridge, browser fallback) ---------- */
@@ -731,9 +731,9 @@ function lineChips(l,t,cur){
   else if(l.kind==="bill")c+='<span class="chip">مصروف ثابت</span>';
   else if(l.kind==="tax")c+='<span class="chip exc">تجنيب '+num(taxCfg().pct)+"% من الدخل</span>"+(l.for===cur&&taxShort()>0.5?'<span class="chip">لين اليوم '+money(taxShort())+"</span>":"");
   else if(l.kind==="budget")c+='<span class="chip">ميزانية '+money(l.budget)+'</span><span class="chip">صرفت '+money(l.spent)+" من اليوميات</span>"+(l.spent>l.budget+0.5?'<span class="chip short">زادت '+money(l.spent-l.budget)+"</span>":"");
-  else if(l.kind==="min")c+='<span class="chip min">قسط '+l.no+" من "+l.total+(l.thenClose?" + إقفال":"")+"</span>"+((byId(l.item)||{}).critical?'<span class="chip late">حرج: لا تفوّت</span>':"")+(l.moved?'<span class="chip moved">مؤجّل من '+dLabel(l.orig)+"</span>":"");
+  else if(l.kind==="min")c+=(l.orig&&(byId(l.item)||{}).bi?'<span class="chip">قسط '+dLabel(l.orig)+"</span>":"")+'<span class="chip min">قسط '+l.no+" من "+l.total+(l.thenClose?" + إقفال":"")+"</span>"+((byId(l.item)||{}).critical?'<span class="chip late">حرج: لا تفوّت</span>':"")+(l.moved?'<span class="chip moved">مؤجّل من '+dLabel(l.orig)+"</span>":"");
   else if(l.kind==="full")c+='<span class="chip full">دين شخصي · دفعة كاملة</span>';
-  else if(l.kind==="exc")c+='<span class="chip exc">دفعة استثنائية</span>';
+  else if(l.kind==="exc"){const pn=((S.planned||[]).find(x=>x.id===l.pid)||{}).note;c+='<span class="chip exc">'+esc(pn||"دفعة استثنائية")+"</span>"}
   else if(l.kind==="close")c+='<span class="chip fund">إقفال من الصندوق</span>';
   else if(l.kind==="lump")c+='<span class="chip fund">دفعة من الصندوق</span>';
   else if(l.kind==="goal")c+='<span class="chip fund">من الصندوق للهدف</span>';
