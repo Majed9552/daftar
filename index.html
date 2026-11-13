@@ -233,7 +233,7 @@ const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 const num=v=>{const n=parseFloat(String(v??"").replace(/,/g,""));return isFinite(n)?n:0};
 const sum=(a,f)=>a.reduce((s,x)=>s+f(x),0);
 const FUND="صندوق السداد";
-const APPV="2.0";
+const APPV="2.0.1";
 const TAX="مخصص الضريبة";
 
 /* ---------- storage + phone features (Android bridge, browser fallback) ---------- */
@@ -855,7 +855,7 @@ function viewHome(){
     '<div class="stat"><span>باقي عليك هذا الشهر</span><b>'+M(dueLeft)+"</b></div>"+
     '<div class="stat acc"><span>صندوق السداد</span><b>'+M(fundBal())+"</b></div>"+
     '<div class="stat '+(m0.draw>0.5?"bad":"good")+'"><span>'+(m0.draw>0.5?"عجز متوقع آخر الشهر":"للصندوق آخر الشهر (متوقع)")+"</span><b>"+M(m0.draw>0.5?m0.draw:m0.toFund)+"</b></div></div>";
-  h+=todoCard();
+
   h+='<div class="grid2"><section class="card"><div class="card-h"><h2>اليوم والشهر</h2><span class="chip">'+left+" يوم باقي في "+MONTHS[+ym.slice(5,7)-1]+"</span></div>";
   const ahead=mtd.got-mtd.expected,pw=perWorkday(ym);
   h+='<div><div class="big">'+M(Math.round(pw))+' <span class="small muted">هدفك ليوم الشغل (صافي بعد البنزين)</span></div><p class="small muted">'+(S.settings.incomeByMonth[ym]!=null?"دخل "+MONTHS[+ym.slice(5,7)-1]+" المخطط "+money(expectedMonth(ym)):"خطتك "+money(S.settings.dailyAvg)+" × "+S.settings.workdays+" يوم = "+money(planMonthly())+" بالشهر")+"</p></div>";
