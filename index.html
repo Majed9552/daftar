@@ -3,6 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<script>
+/* phones: draw the same layout as the tablet, scaled down to fit the screen (changeable in settings) */
+(function(){try{var m=localStorage.getItem("sadad-view")||"compact",w=Math.min(screen.width,screen.height);if(w<700&&m!=="normal")document.querySelector("meta[name=viewport]").setAttribute("content","width="+(m==="medium"?480:600)+",user-scalable=no,viewport-fit=cover")}catch(e){}})();
+</script>
 <title>دفتر السداد</title>
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -63,7 +67,7 @@ h3{font-size:15px;font-family:var(--font);font-weight:600}
 .top .cash b{font-size:20px;font-weight:700}
 main{max-width:1040px;margin:0 auto;padding:16px max(16px,env(safe-area-inset-right)) calc(92px + env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));display:flex;flex-direction:column;gap:16px}
 .grid2{display:grid;grid-template-columns:1fr;gap:16px}
-@media (min-width:760px){.grid2{grid-template-columns:1fr 1fr}}
+@media (min-width:460px){.grid2{grid-template-columns:1fr 1fr}}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;min-width:0;display:flex;flex-direction:column;gap:12px}
 .card.alert{border-color:var(--warn);background:var(--warn-soft)}
 .card.snow{border-color:var(--accent);box-shadow:inset 0 3px 0 var(--accent)}
@@ -72,7 +76,8 @@ main{max-width:1040px;margin:0 auto;padding:16px max(16px,env(safe-area-inset-ri
 .small{font-size:13px}
 p{margin:0}
 .stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden}
-@media (min-width:760px){.stats{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media (min-width:460px){.stats{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media (min-width:460px) and (max-width:700px){.stat{padding:10px 10px}.stat b{font-size:18px}.card{padding:12px}.row .when{min-width:44px}main{gap:12px}.grid2{gap:12px}}
 .stat{background:var(--surface);padding:12px 14px;display:flex;flex-direction:column;gap:2px;min-width:0}
 .stat>span{font-size:12px;color:var(--muted)}
 .stat b{font-size:20px;font-weight:700}
@@ -820,6 +825,8 @@ function viewDebts(){
   h+='</div></section><section class="card"><div class="card-h"><h2>الدخل والصندوق</h2><button class="btn small" data-a="settings">تعديل</button></div>';
   const ibm=Object.keys(S.settings.incomeByMonth).sort();
   h+='<div class="rows"><div class="row"><div></div><div class="what">خطة الدخل (صافي بعد البنزين)</div><div class="amt">'+M(S.settings.dailyAvg)+" × "+S.settings.workdays+" = "+M(planMonthly())+"</div></div>"+ibm.map(k=>'<div class="row"><div></div><div class="what">'+mName(k)+'</div><div class="amt">'+M(S.settings.incomeByMonth[k])+"</div></div>").join("")+'<div class="row"><div></div><div class="what">الخطة تحسب الدخل من</div><div class="amt small">'+(S.settings.incomeMode==="actual"?"متوسطي الفعلي":"الخطة")+'</div></div><div class="row"><div></div><div class="what">طريقة الصندوق</div><div class="amt small">'+(F.mode==="chunk"?"يدفع كل ما يوصل "+money(F.chunk):"يجمع لين يقفل الدين كامل")+'</div></div><div class="row"><div></div><div class="what">يبقى في الصندوق دائماً</div><div class="amt">'+M(F.keep)+'</div></div><div class="row"><div></div><div class="what">النقد يوم بداية الخطة ('+dLabel(S.startDate)+')</div><div class="amt">'+M(S.startCash)+"</div></div></div></section>";
+  if(Math.min(screen.width,screen.height)<700){let vm="compact";try{vm=localStorage.getItem("sadad-view")||"compact"}catch(e){}
+    h+='<section class="card"><h2>حجم العرض على الجوال</h2><p class="small muted">"مثل التابلت" يعرض نفس الترتيب بحجم أصغر. لو الخط صغير عليك اختر "وسط" أو "كبير".</p><div class="seg">'+[["compact","مثل التابلت"],["medium","وسط"],["normal","كبير (عمود واحد)"]].map(([v,l])=>'<button data-a="viewmode" data-v="'+v+'" aria-pressed="'+(vm===v)+'">'+l+"</button>").join("")+"</div></section>"}
   h+='<section class="card"><h2>التنبيهات</h2><p class="small muted">التنبيه يرن ويكرر الرنة لين تفتحه. الدفعات: قبلها بـ 3 أيام، كل 6 ساعات (9 الصبح، 3 العصر، 9 الليل). اليومية: 9 الليل، ثم 12 الليل و6 الفجر لو ما سجلتها. اضغط على الإشعار ويفتح لك صفحة التنبيهات.</p><div class="btns"><button class="btn" data-a="testnotify">جرّب التنبيه الحين</button></div></section>';
   h+='<section class="card"><div class="card-h"><h2>المزامنة بين الأجهزة</h2><span class="chip '+(syncOn()&&!SY.err?"done":"")+'">'+(syncOn()?"مفعّلة":"غير مفعّلة")+'</span></div><p class="small muted" id="syncStatus">'+esc(syncStatusText())+'</p><div class="btns"><button class="btn" data-a="syncsetup">'+(syncOn()?"إعدادات المزامنة":"فعّل المزامنة")+"</button>"+(syncOn()?'<button class="btn primary" data-a="syncnow">زامن الحين</button>':"")+"</div></section>";
   h+='<section class="card"><h2>نسخة احتياطية</h2><p class="small muted">بياناتك محفوظة على هذا الجهاز. خذ نسخة كل أسبوع وأرسلها لنفسك (واتساب أو إيميل).</p><div class="btns"><button class="btn" data-a="export">مشاركة نسخة احتياطية</button><button class="btn" data-a="import">استرجاع نسخة</button><button class="btn danger" data-a="reset">رجوع للخطة الأصلية</button></div></section>';
@@ -1098,6 +1105,7 @@ document.addEventListener("click",e=>{
     case"tofund":toFundNow();break;
     case"advice":adviceSheet();break;
     case"syncsetup":syncSheet();break;
+    case"viewmode":try{localStorage.setItem("sadad-view",el.dataset.v)}catch(e){}location.reload();break;
     case"syncnow":toast("جاري المزامنة...");syncNow(true);break;
     case"syncoff":SY={repo:SY.repo,token:"",last:0,err:""};saveSY();closeSheet(true);render();toast("المزامنة متوقفة على هذا الجهاز");break;
     case"alert":{const al=ALERTS[+el.dataset.i];if(al)al.go();break}
