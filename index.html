@@ -236,7 +236,7 @@ const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 const num=v=>{const n=parseFloat(String(v??"").replace(/,/g,""));return isFinite(n)?n:0};
 const sum=(a,f)=>a.reduce((s,x)=>s+f(x),0);
 const FUND="صندوق السداد";
-const APPV="2.1.6";
+const APPV="2.1.8";
 const TAX="مخصص الضريبة";
 
 /* ---------- storage + phone features (Android bridge, browser fallback) ---------- */
@@ -274,7 +274,8 @@ function defaultState(){return{
 
 /* a plan update: a small description of changes (new agreements, dates, amounts) applied once on top of the saved data */
 function applySpec(sp){
-  if(!sp)return false;if(sp.sadadPlan)sp.sadadUpdate=sp.sadadPlan;
+  if(!sp)return false;if(sp.sadadCode||sp.sadadPlan)sp.sadadUpdate=sp.sadadCode||sp.sadadPlan;
+  if(num(sp.need)>APPN){toast("هذا الكود يحتاج إصدار أحدث من التطبيق. حدّث التطبيق أول",6000);return false}
   if(!sp.sadadUpdate||S.ref===sp.sadadUpdate)return false;
   const g=id=>S.items.find(i=>i.id===id);
   (sp.items||[]).forEach(o=>{const d=g(o.id);if(!d)return;
@@ -285,6 +286,7 @@ function applySpec(sp){
   Object.keys(sp.ov||{}).forEach(k=>{if(g(k.split("|")[0]))S.overrides[k]=sp.ov[k]});
   (sp.add||[]).forEach(x=>{if(!g(x.id)){S.items.push(x);if(x.kind!=="bill")S.order.push(x.id)}});
   S.contacts=S.contacts||[];(sp.contacts||[]).forEach(c=>{if(g(c.item)&&!S.contacts.some(x=>x.id===c.id))S.contacts.push(c)});
+  if(sp.delPlanned)S.planned=S.planned.filter(y=>!sp.delPlanned.includes(y.id));
   (sp.planned||[]).forEach(x=>{if(g(x.item)&&!S.planned.some(y=>y.id===x.id))S.planned.push(x)});
   if(sp.rules)S.rules=sp.rules;
   S.ref=sp.sadadUpdate;return true}
@@ -430,8 +432,16 @@ function billActive(b,ym){
 function defaultPlanned(it,ym){
   if(it.kind==="bill")return billActive(it,ym)?num(it.amount):0;
   if(it.start&&ym<it.start)return 0;
+  {const bd=biDates(it,ym);if(bd)return bd.length*num(it.bi.amount)}
   let a=num(it.amount);(it.steps||[]).forEach(x=>{if(ym>=x.from)a=num(x.amount)});
   return a}
+/* a debt paid every two weeks from a fixed first date: some months carry three payments */
+function biDates(it,ym){
+  if(!it.bi||!it.bi.start||ovOf(it.id,ym))return null;
+  const first=ym+"-01",last=dateIn(ym,31),out=[];if(last<it.bi.start)return out;
+  let d=addDays(it.bi.start,Math.max(0,Math.ceil(diffDays(it.bi.start,first)/14))*14);
+  while(d<=last){out.push(d);d=addDays(d,14)}
+  return out}
 /* a debt paid in two halves each month (for example the 10th and the 20th) */
 const splitDays=(it,ym)=>{const o=ovOf(it.id,ym);return it.split&&it.split.days&&ym>=(it.split.from||"")&&!(o&&o.day!=null)?it.split.days:null};
 function plannedFor(it,ym){const o=ovOf(it.id,ym);return o&&o.amount!=null?num(o.amount):defaultPlanned(it,ym)}
@@ -526,8 +536,8 @@ function simulate(o){
       const id=it.id;if(bal[id]<=0.5)continue;
       if(isPersonal(it)){const dueYm=ymOf(it.due||dateIn(cur,28));if(dueYm===ym||(first&&dueYm<cur))lines.push(mk(it,"full",bal[id],it.due,dueYm));continue}
       const ov=ovOf(id,ym),amt=Math.min(bal[id],Math.max(0,plannedFor(it,ym)-paidIn(id,ym)));
-      const sd=amt>0.5?splitDays(it,ym):null;
-      if(sd){const share=plannedFor(it,ym)/sd.length;let left=amt;const parts=[];for(let i=sd.length-1;i>=0;i--){const x=Math.min(share,left);left-=x;if(x>0.5)parts.unshift(mk(it,"min",x,dateIn(ym,sd[i]),ym))}parts.forEach(x=>lines.push(x))}
+      const bd=amt>0.5?biDates(it,ym):null,sp0=amt>0.5&&!bd?splitDays(it,ym):null,sd=bd&&bd.length?bd:sp0?sp0.map(x=>dateIn(ym,x)):null;
+      if(sd){const share=plannedFor(it,ym)/sd.length;let left=amt;const parts=[];for(let i=sd.length-1;i>=0;i--){const x=Math.min(share,left);left-=x;if(x>0.5)parts.unshift(mk(it,"min",x,sd[i],ym))}parts.forEach(x=>lines.push(x))}
       else if(amt>0.5||(ov&&ov.amount===0&&defaultPlanned(it,ym)>0))lines.push(mk(it,"min",amt,dateIn(ym,dayFor(it,ym)),ym,{skipped:amt<=0.5}))}
     S.planned.forEach(p=>{const it=byId(p.item);if(!it||bal[it.id]<=0.5)return;const pm=ymOf(p.date);if(pm===ym||(first&&pm<cur))lines.push(mk(it,"exc",Math.min(num(p.amount),bal[it.id]),p.date,pm,{pid:p.id}))});
     const kindRank={bill:0,full:1,min:2,exc:3,budget:4,tax:5};
@@ -978,13 +988,13 @@ function viewDebts(){
   let qn=0;
   let h='<section class="card"><div class="card-h"><h2>ترتيب صندوق السداد</h2><div class="btns"><button class="btn small" data-a="add" data-k="installment">+ دين بأقساط</button><button class="btn small" data-a="add" data-k="personal">+ دين شخصي</button><button class="btn small" data-a="add" data-k="goal">+ هدف</button></div></div><p class="small muted">الصندوق يقفل بهذا الترتيب، واحد واحد. الأقساط تمشي كلها في مواعيدها لين يجي دور الدين. الدين الشخصي خارج الترتيب: يندفع كامل بتاريخه. قدّم أو أخّر بالأسهم.</p><div class="rows">';
   h+=list.map((d,i)=>{const b=curBal(d),q=inQueue(d)&&b>0.5;if(q)qn++;
-    const sub=isPersonal(d)?"شخصي · دفعة كاملة "+M(b)+" يوم "+dLabel(d.due)+" "+d.due.slice(0,4)+(b<=0.5?" · انتهى ✓":""):isGoal(d)?(d.save?"ادخار":"هدف")+" · باقي "+M(b)+" من "+M(d.target)+" · "+payoffText(d.id):"خطورة "+RISKN[riskOf(d)]+" · "+flags(d)+" · باقي "+M(b)+(num(d.amount)?" · قسط "+M(d.amount)+" يوم "+(d.split?d.split.days.join(" و"):d.day)+(d.steps||[]).map(x=>" · يصير "+M(x.amount)+" من "+mName(x.from)).join(""):" · بدون قسط ثابت")+(num(d.rate)>0?" · فائدة "+num(d.rate)+"%"+(d.rateEst?" (تقدير)":"")+" ≈ "+money(intNow(d))+" بالشهر":"")+" · "+payoffText(d.id);
+    const sub=isPersonal(d)?"شخصي · دفعة كاملة "+M(b)+" يوم "+dLabel(d.due)+" "+d.due.slice(0,4)+(b<=0.5?" · انتهى ✓":""):isGoal(d)?(d.save?"ادخار":"هدف")+" · باقي "+M(b)+" من "+M(d.target)+" · "+payoffText(d.id):"خطورة "+RISKN[riskOf(d)]+" · "+flags(d)+" · باقي "+M(b)+(num(d.amount)?(d.bi?" · قسط "+money(d.bi.amount)+" كل أسبوعين (≈ "+M(d.amount)+" بالشهر)":" · قسط "+M(d.amount)+" يوم "+(d.split?d.split.days.join(" و"):d.day))+(d.steps||[]).map(x=>" · يصير "+M(x.amount)+" من "+mName(x.from)).join(""):" · بدون قسط ثابت")+(num(d.rate)>0?" · فائدة "+num(d.rate)+"%"+(d.rateEst?" (تقدير)":"")+" ≈ "+money(intNow(d))+" بالشهر":"")+" · "+payoffText(d.id);
     return '<div class="prio"><span class="n'+(isPersonal(d)?" personal":isGoal(d)?" goal":b<=0.5?" off":"")+'">'+(isPersonal(d)?"ش":b<=0.5?"✓":qn)+'</span><div data-a="edit" data-id="'+d.id+'" style="cursor:pointer;min-width:0"><b>'+esc(d.name)+'</b><div class="small muted">'+sub+"</div>"+(d.renew&&b<=0.5?'<button class="btn small primary" data-a="policy" style="margin-top:6px">أضف وثيقة تأمين جديدة</button>':"")+'</div><div class="btns"><button class="btn icon small" aria-label="قدّم" data-a="up" data-id="'+d.id+'"'+(i===0?" disabled":"")+'>▲</button><button class="btn icon small" aria-label="أخّر" data-a="down" data-id="'+d.id+'"'+(i===list.length-1?" disabled":"")+">▼</button></div></div>"}).join("");
   h+="</div></section>";
   {const ym=addM(ymOf(todayStr()),1),rows=[];
    S.items.forEach(it=>{if(it.fromDaily)return;
      if(it.kind==="bill"){if(billActive(it,ym)&&(it.freq||"monthly")==="monthly"&&num(it.amount)>0)rows.push({d:it.day,n:it.name,a:num(it.amount),id:it.id})}
-     else if(isDebt(it)&&!isPersonal(it)&&curBal(it)>0.5&&num(it.amount)>0&&!(it.start&&ym<it.start)){const ds=it.split&&it.split.days||[it.day];ds.forEach(x=>rows.push({d:x,n:it.name,a:num(it.amount)/ds.length,id:it.id,debt:true}))}});
+     else if(isDebt(it)&&!isPersonal(it)&&curBal(it)>0.5&&num(it.amount)>0&&!(it.start&&ym<it.start)){if(it.bi){const nx=biDates(it,ym)||[];rows.push({d:nx.length?dDay(nx[0]):it.day,n:it.name+" · كل أسبوعين ("+money(it.bi.amount)+")",a:num(it.bi.amount)*26/12,id:it.id,debt:true});return}const ds=it.split&&it.split.days||[it.day];ds.forEach(x=>rows.push({d:x,n:it.name,a:num(it.amount)/ds.length,id:it.id,debt:true}))}});
    rows.sort((a,b)=>a.d-b.d);
    if(rows.length)h+='<section class="card"><div class="card-h"><h2>الالتزامات الشهرية حسب يوم الاستحقاق</h2><span class="small muted">'+M(sum(rows,r=>r.a))+' بالشهر</span></div><div class="rows">'+rows.map(r=>'<div class="row tap" data-a="edit" data-id="'+r.id+'"><div class="when"><b class="num">'+r.d+'</b>يوم</div><div class="what"><div>'+esc(r.n)+'</div><div class="chips"><span class="chip '+(r.debt?"min":"")+'">'+(r.debt?"قسط دين":"مصروف ثابت")+'</span></div></div><div class="amt">'+M(r.a)+"</div></div>").join("")+'</div><p class="small muted">الشهر العادي. الشهور اللي فيها مبالغ أو تواريخ مختلفة (مثل متأخرات الإيجار) تلقاها بتواريخها في تبويب الخطة.</p></section>'}
   h+='<section class="card"><div class="card-h"><h2>المصاريف الثابتة</h2><div class="btns"><button class="btn small" data-a="add" data-k="bill">+ مصروف ثابت</button><button class="btn small" data-a="policy">+ وثيقة تأمين</button></div></div><div class="rows">';
@@ -1330,7 +1340,7 @@ function itemSheet(id,kind){
     if(bill){x.amount=num(fd.amount);if(!x.fromDaily)x.day=Math.min(31,Math.max(1,Math.round(num(fd.day))||1));x.freq=fd.freq;x.start=fd.start||ym;x.end=fd.end||null}
     else if(goal){x.target=num(fd.target);x.save=!!fd.save}
     else if(pers){if(!fd.due){toast("حدد التاريخ");return false}x.due=fd.due;x.balance=num(fd.cur)+(isNew?0:paidBy(x.id))}
-    else{if(num(fd.amount)!==num(x.amount))delete x.steps;if(Math.round(num(fd.day))!==num(x.day))delete x.split;x.amount=num(fd.amount);x.day=Math.min(31,Math.max(1,Math.round(num(fd.day))||1));x.start=fd.start||null;x.balance=num(fd.cur)+(isNew?0:paidBy(x.id))}
+    else{if(num(fd.amount)!==num(x.amount)){delete x.steps;delete x.bi}if(Math.round(num(fd.day))!==num(x.day))delete x.split;x.amount=num(fd.amount);x.day=Math.min(31,Math.max(1,Math.round(num(fd.day))||1));x.start=fd.start||null;x.balance=num(fd.cur)+(isNew?0:paidBy(x.id))}
     if(x.kind==="debt"){x.risk=+fd.risk||2;if(!isPersonal(x)){if(num(fd.rate)!==num(x.rate))x.rateEst=false;x.rate=num(fd.rate)||null;x.agreed=fd.agr==="1";x.legal=!!fd.legal;x.deadline=fd.deadline||"";x.settle=num(fd.settle)||null;x.settleUntil=fd.settleUntil||""}}
     if(isNew){S.items.push(x);if(!bill)S.order.push(x.id)}
     done(isNew?"انضاف":"انحفظ")});
@@ -1362,7 +1372,7 @@ function exportData(){
   try{if(Native.has("share")){AndroidBridge.share(txt);return}}catch(e){}
   openSheet('<h2>نسخة احتياطية</h2><p class="small muted">انسخ النص كامل واحفظه عندك.</p><div class="field"><textarea id="expTxt" rows="8" readonly>'+esc(txt)+'</textarea></div><div class="btns" style="justify-content:flex-end"><button class="btn" data-a="close">إغلاق</button></div>');$("#expTxt").select()}
 function importData(){
-  openSheet('<h2>استرجاع نسخة</h2><form><div class="field"><label for="f_imp">الصق نص النسخة الاحتياطية أو كود تحديث الخطة</label><textarea id="f_imp" name="imp" rows="8" style="direction:ltr"></textarea></div><div class="field"><label for="f_file">أو اختر الملف مباشرة</label><input id="f_file" type="file" accept=".txt,.json,text/plain,application/json"></div><p class="small muted">النسخة الاحتياطية تستبدل البيانات الحالية. كود التحديث يعدّل الخطة فقط ويبقي يومياتك ودفعاتك.</p>'+actionsRow("استرجاع")+"</form>",fd=>{try{let tx=String(fd.imp||"").replace(/[\u201C\u201D\u201E\u2033]/g,'"').replace(/^[^{]*/,"").replace(/[^}]*$/,"");if(!tx){toast("ما فيه نص. الصق الكود أو اختر الملف");return false}let o;try{o=JSON.parse(tx)}catch(e){toast("النص ناقص أو مقطوع ("+tx.length+" حرف). انسخه كامل أو اختر الملف",6000);return false}if(o.sadadUpdate||o.sadadPlan){if(applySpec(o))done("تطبّق تحديث الخطة ("+o.sadadUpdate+")");else{closeSheet(true);toast("هذا التحديث مطبّق من قبل")}return false}if(!o.items||!o.order)throw 0;S=o;S.updatedAt=Date.now();Store.save(S);location.reload()}catch(e){toast("النص هذا مو نسخة صحيحة");return false}});
+  openSheet('<h2>استرجاع نسخة</h2><form><div class="field"><label for="f_imp">الصق نص النسخة الاحتياطية أو كود تحديث الخطة</label><textarea id="f_imp" name="imp" rows="8" style="direction:ltr"></textarea></div><div class="field"><label for="f_file">أو اختر الملف مباشرة</label><input id="f_file" type="file" accept=".txt,.json,text/plain,application/json"></div><p class="small muted">النسخة الاحتياطية تستبدل البيانات الحالية. كود التحديث يعدّل الخطة فقط ويبقي يومياتك ودفعاتك.</p>'+actionsRow("استرجاع")+"</form>",fd=>{try{let tx=String(fd.imp||"").replace(/[\u201C\u201D\u201E\u2033]/g,'"').replace(/^[^{]*/,"").replace(/[^}]*$/,"");if(!tx){toast("ما فيه نص. الصق الكود أو اختر الملف");return false}let o;try{o=JSON.parse(tx)}catch(e){toast("النص ناقص أو مقطوع ("+tx.length+" حرف). انسخه كامل أو اختر الملف",6000);return false}if(o.sadadUpdate||o.sadadPlan||o.sadadCode){if(applySpec(o))done("تطبّق تحديث الخطة ("+o.sadadUpdate+")");else{closeSheet(true);toast("هذا التحديث مطبّق من قبل")}return false}if(!o.items||!o.order)throw 0;S=o;S.updatedAt=Date.now();Store.save(S);location.reload()}catch(e){toast("النص هذا مو نسخة صحيحة");return false}});
   const fi=$("#f_file");if(fi)fi.onchange=()=>{const f=fi.files&&fi.files[0];if(!f)return;const ok=x=>{x=String(x||"");$("#f_imp").value=x;toast(x.length?"انقرأ الملف ("+x.length+" حرف)، اضغط استرجاع":"الملف فاضي (حجمه "+f.size+"). استخدم النسخ واللصق",6000)},bad=()=>toast("ما قدرت أقرأ الملف. استخدم النسخ واللصق",6000);
     try{if(f.text)f.text().then(ok,bad);else{const r=new FileReader();r.onload=()=>ok(r.result);r.onerror=bad;r.readAsText(f)}}catch(e){bad()}}}
 
