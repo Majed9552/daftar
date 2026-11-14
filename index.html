@@ -7,6 +7,10 @@
 /* phones: draw the same layout as the tablet, scaled down to fit the screen (changeable in settings) */
 (function(){try{var m=localStorage.getItem("sadad-view")||"compact",w=Math.min(screen.width,screen.height);if(w<700&&m!=="normal")document.querySelector("meta[name=viewport]").setAttribute("content","width="+(m==="medium"?480:600)+",user-scalable=no,viewport-fit=cover")}catch(e){}})();
 </script>
+<script>
+/* which skin to draw: the Apple look, or the earlier design kept exactly as it was (changeable in settings, per device) */
+(function(){var k="apple";try{k=localStorage.getItem("sadad-look")==="classic"?"classic":"apple"}catch(e){}if(k!=="classic")document.documentElement.className="ap"})();
+</script>
 <title>دفتر السداد</title>
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -197,6 +201,118 @@ svg [data-a=drill]:hover rect{opacity:.88}
 .kv{display:flex;justify-content:space-between;gap:10px;font-size:13.5px}
 @media (prefers-reduced-motion:no-preference){.sheet{animation:up .18s ease-out}@keyframes up{from{transform:translateY(24px);opacity:.6}to{transform:none;opacity:1}}}
 @media (prefers-reduced-motion:reduce){.row.over{animation:none;background:var(--due-hot)}}
+
+/* ================= Apple look =================
+   A second skin over the same screens: same boxes, icons, order and numbers; only material, colour, type and control style change.
+   Everything here is scoped to html.ap, so the earlier design above stays exactly as it was and can be switched back in one tap. */
+html.ap{
+  --bg:#F2F2F7; --surface:#FFFFFF; --sunk:rgb(118 118 128/.12); --ink:#000000; --muted:rgb(60 60 67/.68); --line:rgb(60 60 67/.16);
+  --accent:#0D6A5B; --accent-ink:#FFFFFF; --accent-soft:rgb(13 106 91/.12);
+  --good:#1F7A35; --good-soft:rgb(52 199 89/.16); --warn:#B25000; --warn-soft:rgb(255 149 0/.15); --bad:#D70015; --bad-soft:rgb(255 59 48/.12);
+  --paid:rgb(52 199 89/.24); --paid-ink:#17632C; --paid-glow:transparent;
+  --due:rgb(255 59 48/.16); --due-hot:rgb(255 59 48/.38); --due-ink:#C4160F; --due-glow:rgb(255 59 48/.4);
+  --chart-muted:#C7C7CC; --chart-good:#34C759;
+  --bar:#0D6A5B; --bar-ink:#FFFFFF; --seg-on:#FFFFFF; --glass:rgb(255 255 255/.74); --glass-edge:rgb(0 0 0/.08); --fill-2:rgb(120 120 128/.16); --on-tint:rgb(255 255 255/.62);
+  --r:20px; --r-in:13px;
+  --font:-apple-system,"SF Pro Text","Plex",system-ui,"Noto Sans Arabic",Tahoma,sans-serif;
+  --display:-apple-system,"SF Pro Display","Plex",system-ui,Tahoma,sans-serif;
+  --numf:ui-rounded,"SF Pro Rounded",-apple-system,"Plex",system-ui,sans-serif;
+}
+@media (prefers-color-scheme:dark){html.ap{
+  --bg:#000000; --surface:#1C1C1E; --sunk:rgb(118 118 128/.24); --ink:#FFFFFF; --muted:rgb(235 235 245/.64); --line:rgb(84 84 88/.6);
+  --accent:#4EC0AC; --accent-ink:#06231D; --accent-soft:rgb(78 192 172/.18);
+  --good:#30D158; --good-soft:rgb(48 209 88/.18); --warn:#FFB340; --warn-soft:rgb(255 159 10/.18); --bad:#FF6961; --bad-soft:rgb(255 69 58/.18);
+  --paid:rgb(48 209 88/.26); --paid-ink:#C9F7D6; --due:rgb(255 69 58/.24); --due-hot:rgb(255 69 58/.5); --due-ink:#FFD7D3; --due-glow:rgb(255 69 58/.55);
+  --chart-muted:#48484A; --chart-good:#30D158;
+  --seg-on:#636366; --glass:rgb(44 44 46/.74); --glass-edge:rgb(255 255 255/.14); --fill-2:rgb(120 120 128/.32); --on-tint:rgb(255 255 255/.14)}}
+@media (min-width:460px) and (max-width:700px){html.ap{--r:24px;--r-in:14px}}
+@media (prefers-color-scheme:dark) and (min-width:460px) and (max-width:700px){html.ap .home2 .balx,html.ap .home2 .chip.hid{color:#3DDC84}html.ap .home2 .row.soon .balx,html.ap .home2 .row.over .balx,html.ap .home2 .row.soon .chip.hid,html.ap .home2 .row.over .chip.hid{color:#FF9D94}html.ap .home2 .row.paid .balx{color:#8FF0B0}}
+html.ap body{-webkit-font-smoothing:antialiased;caret-color:var(--accent);accent-color:var(--accent)}
+html.ap ::selection{background:var(--accent-soft)}
+html.ap ::placeholder{color:var(--muted);opacity:.55}
+html.ap #view a[style*="--accent"]{text-decoration:none;font-weight:500}
+html.ap h1,html.ap h2{font-weight:700}
+
+/* top bar: same band and contents; the bell becomes a glass capsule with the system badge */
+html.ap .top{background:var(--bar);color:var(--bar-ink)}
+html.ap .top .bell{border-radius:999px;background:rgb(255 255 255/.16);box-shadow:inset 0 0 0 .5px rgb(255 255 255/.34),inset 0 1px 0 rgb(255 255 255/.18)}
+html.ap .top .bell[aria-current=page]{background:rgb(255 255 255/.3)}
+html.ap .top .bell b{background:#FF3B30;color:#fff;font-weight:600}
+html.ap .top .cash b,html.ap .stat b,html.ap .big{font-family:var(--numf)}
+html.ap .big .small,html.ap .big span{font-family:var(--font)}
+
+/* cards and grouped blocks: white on the grouped grey, no outlines */
+html.ap .card{border:0;border-radius:var(--r);box-shadow:none}
+html.ap .card.alert{background:linear-gradient(var(--warn-soft),var(--warn-soft)),var(--surface)}
+html.ap .card.snow{box-shadow:none;background:linear-gradient(180deg,var(--accent-soft),transparent 120px),var(--surface)}
+html.ap .stats{border:0;border-radius:var(--r)}
+html.ap .month{border:0;border-radius:var(--r)}
+html.ap .month.cur{box-shadow:0 0 0 1.5px var(--accent)}
+html.ap .flow div{border-radius:12px}
+html.ap .note{border-radius:var(--r-in)}
+html.ap .empty{border:0;background:var(--sunk);border-radius:var(--r-in)}
+html.ap .legend i{border-radius:4px}
+
+/* rows: tinted fills instead of outlines and glows */
+html.ap .row.paid,html.ap .row.soon,html.ap .row.over{border-radius:var(--r-in)}
+html.ap .row.paid,html.ap .row.soon{box-shadow:none}
+html.ap .row.tap:active{filter:none;opacity:.6}
+html.ap .row.paid .chip,html.ap .row.soon .chip,html.ap .row.over .chip{background:var(--on-tint)}
+html.ap .row .amt{font-weight:600;font-variant-numeric:tabular-nums}
+@media (prefers-reduced-motion:no-preference){html.ap .row.over{animation:blinkap 1.1s ease-in-out infinite}}
+@keyframes blinkap{0%,100%{background:var(--due);box-shadow:0 0 0 0 transparent}50%{background:var(--due-hot);box-shadow:0 0 0 1.5px var(--due-glow)}}
+
+/* buttons: capsules; filled for the main action, grey fill with tint text for the rest */
+html.ap .btn{border:0;background:var(--sunk);color:var(--accent);border-radius:999px;transition:opacity .15s ease,transform .15s ease}
+html.ap .btn:active{transform:scale(.97);opacity:.7}
+html.ap .btn.primary{background:var(--accent);color:var(--accent-ink);box-shadow:inset 0 1px 0 rgb(255 255 255/.2)}
+html.ap .btn.go{background:var(--good);color:#fff}
+html.ap .btn.danger{background:var(--bad-soft);color:var(--bad)}
+html.ap .bar{background:var(--fill-2)}
+
+/* form controls */
+html.ap .field label{font-weight:500}
+html.ap .field input,html.ap .field select,html.ap .field textarea{border:0;background:var(--sunk);border-radius:12px}
+html.ap .field input:focus-visible,html.ap .field select:focus-visible,html.ap .field textarea:focus-visible{outline:2px solid var(--accent);outline-offset:0}
+html.ap .check{flex-direction:row-reverse;justify-content:space-between;gap:12px;min-height:40px}
+html.ap .check input{-webkit-appearance:none;appearance:none;flex:0 0 auto;margin:0;width:51px;height:31px;border-radius:31px;background:var(--fill-2);position:relative;cursor:pointer;transition:background .2s ease}
+html.ap .check input::after{content:"";position:absolute;top:2px;inset-inline-start:2px;width:27px;height:27px;border-radius:50%;background:#fff;box-shadow:0 3px 8px rgb(0 0 0/.15),0 1px 1px rgb(0 0 0/.08);transition:inset-inline-start .2s ease}
+html.ap .check input:checked{background:#34C759}
+html.ap .check input:checked::after{inset-inline-start:22px}
+html.ap .seg{border-radius:12px}
+html.ap .seg button{border-radius:10px;color:var(--ink);font-weight:500}
+html.ap .seg button[aria-pressed=true]{background:var(--seg-on);color:var(--ink);font-weight:600;box-shadow:0 3px 8px rgb(0 0 0/.12),0 3px 1px rgb(0 0 0/.04)}
+html.ap th{font-weight:500}
+
+/* tab bar: a floating glass capsule */
+html.ap .tabs{background:none;border:0;pointer-events:none;padding:0 max(12px,env(safe-area-inset-right)) max(10px,calc(env(safe-area-inset-bottom) - 14px)) max(12px,env(safe-area-inset-left))}
+html.ap .tabs-in{pointer-events:auto;max-width:560px;padding:5px;border-radius:999px;background:var(--glass);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);box-shadow:0 12px 32px rgb(0 0 0/.14),0 2px 6px rgb(0 0 0/.06),0 0 0 .5px var(--glass-edge),inset 0 1px 0 rgb(255 255 255/.5)}
+html.ap .tabs a{border-radius:999px;font-weight:500}
+html.ap .tabs a[aria-current=page]{color:var(--accent);background:var(--fill-2);font-weight:600}
+html.ap .tabs a:active{opacity:.6}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){html.ap .tabs-in{background:var(--surface)}}
+
+/* sheets, toast, lock screen */
+html.ap .sheet-bg{background:rgb(0 0 0/.3)}
+html.ap .sheet{border-radius:32px 32px 0 0;padding-top:10px;box-shadow:0 -10px 40px rgb(0 0 0/.16)}
+html.ap .sheet::before{content:"";flex:0 0 auto;align-self:center;width:36px;height:5px;border-radius:3px;background:var(--fill-2);margin-bottom:-4px}
+html.ap .sheet h2{font-size:20px}
+html.ap .sheet .menu{gap:10px}
+html.ap .sheet .menu .btn{text-align:center;min-height:50px;font-size:16px}
+@media (min-width:460px) and (max-width:700px){html.ap .sheet{border-radius:38px 38px 0 0}}
+@media (min-width:760px){html.ap .sheet{border-radius:26px;padding-top:20px;box-shadow:0 20px 60px rgb(0 0 0/.25)}html.ap .sheet::before{display:none}}
+html.ap .toast{background:rgb(44 44 46/.9);color:#fff;border-radius:22px;padding:11px 18px;-webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);box-shadow:0 10px 30px rgb(0 0 0/.22);bottom:calc(104px + env(safe-area-inset-bottom))}
+html.ap #lock{background:var(--bar);color:var(--bar-ink)}
+html.ap #lock input{border-radius:999px}
+html.ap #lock .btn{background:rgb(255 255 255/.18);color:inherit;box-shadow:inset 0 0 0 .5px rgb(255 255 255/.4)}
+@media (prefers-reduced-motion:no-preference){
+  html.ap .sheet{animation:apup .38s cubic-bezier(.32,.72,0,1)}
+  @keyframes apup{from{transform:translateY(100%)}to{transform:none}}
+}
+@media (prefers-reduced-motion:no-preference) and (min-width:760px){
+  html.ap .sheet{animation:appop .24s cubic-bezier(.2,.8,.2,1)}
+  @keyframes appop{from{transform:scale(.95);opacity:0}to{transform:none;opacity:1}}
+}
 </style>
 </head>
 <body>
@@ -237,7 +353,7 @@ const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 const num=v=>{const n=parseFloat(String(v??"").replace(/,/g,""));return isFinite(n)?n:0};
 const sum=(a,f)=>a.reduce((s,x)=>s+f(x),0);
 const FUND="صندوق السداد";
-const APPV="2.3.2",APPN=232;
+const APPV="3.0",APPN=300;
 const TAX="مخصص الضريبة";
 
 /* ---------- storage + phone features (Android bridge, browser fallback) ---------- */
@@ -1026,6 +1142,7 @@ function viewDebts(){
   h+='</div></section><section class="card"><div class="card-h"><h2>الدخل والصندوق</h2><button class="btn small" data-a="settings">تعديل</button></div>';
   const ibm=Object.keys(S.settings.incomeByMonth).sort();
   h+='<div class="rows"><div class="row"><div></div><div class="what">خطة الدخل (صافي بعد البنزين)</div><div class="amt">'+M(S.settings.dailyAvg)+" × "+S.settings.workdays+" = "+M(planMonthly())+"</div></div>"+ibm.map(k=>'<div class="row"><div></div><div class="what">'+mName(k)+'</div><div class="amt">'+M(S.settings.incomeByMonth[k])+"</div></div>").join("")+'<div class="row"><div></div><div class="what">الخطة تحسب الدخل من</div><div class="amt small">'+(S.settings.incomeMode==="actual"?"متوسطي الفعلي":"الخطة")+'</div></div><div class="row"><div></div><div class="what">طريقة الصندوق</div><div class="amt small">'+(F.mode==="chunk"?"يدفع كل ما يوصل "+money(F.chunk):"يجمع لين يقفل الدين كامل")+'</div></div><div class="row"><div></div><div class="what">يبقى في الصندوق دائماً</div><div class="amt">'+M(F.keep)+'</div></div><div class="row"><div></div><div class="what">مخصص الضريبة</div><div class="amt small">'+(num(taxCfg().pct)>0?num(taxCfg().pct)+"% من "+mName(taxCfg().start||ymOf(todayStr())):"متوقف")+'</div></div><div class="row"><div></div><div class="what">النقد يوم بداية الخطة ('+dLabel(S.startDate)+')</div><div class="amt">'+M(S.startCash)+"</div></div></div></section>";
+  h+='<section class="card"><h2>مظهر التطبيق</h2><p class="small muted">نفس الشاشات والأرقام والترتيب في المظهرين، والفرق في الخامة والألوان والخط فقط. بدّل متى ما تبي، وبياناتك ما تتأثر.</p><div class="seg">'+[["apple","نمط أبل"],["classic","التصميم السابق"]].map(([v,l])=>'<button data-a="look" data-v="'+v+'" aria-pressed="'+(lookGet()===v)+'">'+l+"</button>").join("")+"</div></section>";
   if(Math.min(screen.width,screen.height)<700){let vm="compact";try{vm=localStorage.getItem("sadad-view")||"compact"}catch(e){}
     h+='<section class="card"><h2>حجم العرض على الجوال</h2><p class="small muted">"مثل التابلت" يعرض نفس الترتيب بحجم أصغر. لو الخط صغير عليك اختر "وسط" أو "كبير".</p><div class="seg">'+[["compact","مثل التابلت"],["medium","وسط"],["normal","كبير (عمود واحد)"]].map(([v,l])=>'<button data-a="viewmode" data-v="'+v+'" aria-pressed="'+(vm===v)+'">'+l+"</button>").join("")+"</div></section>"}
   h+='<section class="card"><h2>التنبيهات</h2><p class="small muted">التنبيه يرن ويكرر الرنة لين تفتحه. الدفعات: قبلها بـ 3 أيام، كل 6 ساعات (9 الصبح، 3 العصر، 9 الليل). اليومية: 9 الليل، ثم 12 الليل و6 الفجر لو ما سجلتها. اضغط على الإشعار ويفتح لك صفحة التنبيهات.</p><div class="btns"><button class="btn" data-a="testnotify">جرّب التنبيه الحين</button></div></section>';
@@ -1338,6 +1455,20 @@ const PINKEY="sadad-pin";
 const pinHash=x=>{let h=5381;const z="sadad:"+x;for(let i=0;i<z.length;i++)h=((h<<5)+h+z.charCodeAt(i))>>>0;return String(h)};
 const pinGet=()=>{try{return localStorage.getItem(PINKEY)||""}catch(e){return""}};
 let hiddenAt=0;
+/* ---------- look: the Apple skin, or the earlier design kept as it was (this device only) ---------- */
+const LOOKKEY="sadad-look";
+const lookGet=()=>document.documentElement.classList.contains("ap")?"apple":"classic";
+function lookSet(v){try{localStorage.setItem(LOOKKEY,v)}catch(e){}document.documentElement.classList.toggle("ap",v!=="classic");render()}
+/* shown once after the update, so going back is one tap away */
+function lookIntro(){
+  let seen="";try{seen=localStorage.getItem(LOOKKEY+"-seen")||""}catch(e){}
+  if(seen)return;
+  if($("#lock")||$("#sheetRoot .sheet")){setTimeout(lookIntro,1500);return}
+  try{localStorage.setItem(LOOKKEY+"-seen","1")}catch(e){}
+  if(lookGet()!=="apple")return;
+  openSheet('<h2>مظهر جديد بنمط أبل</h2><p class="muted">نفس الشاشات والمربعات والأيقونات والأرقام وبنفس الترتيب. اللي تغيّر هو الخامة فقط: الخلفية والبطاقات والأزرار والخط وشريط التبويبات.</p><p class="small muted">لو ما أعجبك ترجع للتصميم السابق بضغطة، الحين أو في أي وقت من: الديون ← مظهر التطبيق. بياناتك ما تتأثر.</p><div class="menu"><button class="btn primary" id="lkKeep">خلّه على نمط أبل</button><button class="btn" id="lkBack">ارجع للتصميم السابق</button></div>');
+  $("#lkKeep").onclick=()=>closeSheet(true);
+  $("#lkBack").onclick=()=>{closeSheet(true);lookSet("classic");toast("رجع التصميم السابق. تبدّل من: الديون ← مظهر التطبيق",6000)}}
 /* face / fingerprint unlock: the device does the matching (Face ID, Touch ID, Android biometrics); the code is the fallback */
 const BIOKEY="sadad-bio";
 const bioGet=()=>{try{return localStorage.getItem(BIOKEY)||""}catch(e){return""}};
@@ -1490,6 +1621,7 @@ document.addEventListener("click",e=>{
     case"taxyear":taxYear=el.dataset.v;render();break;
     case"taxnow":taxSheet();break;
     case"appupdate":toast("جاري التحديث...");(async()=>{try{if(window.caches){const ks=await caches.keys();await Promise.all(ks.map(k=>caches.delete(k)))}if(navigator.serviceWorker){const rs=await navigator.serviceWorker.getRegistrations();await Promise.all(rs.map(r=>r.update().catch(()=>{})))}}catch(e){}location.reload()})();break;
+    case"look":if(lookGet()!==el.dataset.v){lookSet(el.dataset.v);toast(el.dataset.v==="apple"?"تفعّل نمط أبل":"رجع التصميم السابق")}break;
     case"viewmode":try{localStorage.setItem("sadad-view",el.dataset.v)}catch(e){}location.reload();break;
     case"syncnow":toast("جاري المزامنة...");syncNow(true);break;
     case"syncoff":SY={repo:SY.repo,token:"",last:0,err:""};saveSY();closeSheet(true);render();toast("المزامنة متوقفة على هذا الجهاز");break;
@@ -1529,6 +1661,7 @@ const P0=recIndex(S);migrate();
 if(applyRef()){PREV=P0;persist()}else PREV=recIndex(S);
 lockNow();
 render();
+setTimeout(lookIntro,900);
 syncNow(false);
 if("serviceWorker" in navigator&&location.protocol.startsWith("http"))navigator.serviceWorker.register("sw.js").catch(()=>{});
 </script>
