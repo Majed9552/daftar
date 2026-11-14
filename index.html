@@ -236,7 +236,7 @@ const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 const num=v=>{const n=parseFloat(String(v??"").replace(/,/g,""));return isFinite(n)?n:0};
 const sum=(a,f)=>a.reduce((s,x)=>s+f(x),0);
 const FUND="صندوق السداد";
-const APPV="2.2.5",APPN=225;
+const APPV="2.3",APPN=230;
 const TAX="مخصص الضريبة";
 
 /* ---------- storage + phone features (Android bridge, browser fallback) ---------- */
@@ -1029,7 +1029,7 @@ function viewDebts(){
     h+='<section class="card"><h2>حجم العرض على الجوال</h2><p class="small muted">"مثل التابلت" يعرض نفس الترتيب بحجم أصغر. لو الخط صغير عليك اختر "وسط" أو "كبير".</p><div class="seg">'+[["compact","مثل التابلت"],["medium","وسط"],["normal","كبير (عمود واحد)"]].map(([v,l])=>'<button data-a="viewmode" data-v="'+v+'" aria-pressed="'+(vm===v)+'">'+l+"</button>").join("")+"</div></section>"}
   h+='<section class="card"><h2>التنبيهات</h2><p class="small muted">التنبيه يرن ويكرر الرنة لين تفتحه. الدفعات: قبلها بـ 3 أيام، كل 6 ساعات (9 الصبح، 3 العصر، 9 الليل). اليومية: 9 الليل، ثم 12 الليل و6 الفجر لو ما سجلتها. اضغط على الإشعار ويفتح لك صفحة التنبيهات.</p><div class="btns"><button class="btn" data-a="testnotify">جرّب التنبيه الحين</button></div></section>';
   h+='<section class="card"><div class="card-h"><h2>المزامنة بين الأجهزة</h2><span class="chip '+(syncOn()&&!SY.err?"done":"")+'">'+(syncOn()?"مفعّلة":"غير مفعّلة")+'</span></div><p class="small muted" id="syncStatus">'+esc(syncStatusText())+'</p><div class="btns"><button class="btn" data-a="syncsetup">'+(syncOn()?"إعدادات المزامنة":"فعّل المزامنة")+"</button>"+(syncOn()?'<button class="btn primary" data-a="syncnow">زامن الحين</button>':"")+"</div></section>";
-  h+='<section class="card"><div class="card-h"><h2>قفل التطبيق</h2><span class="chip '+(pinGet()?"done":"")+'">'+(pinGet()?"مفعّل":"غير مفعّل")+'</span></div><p class="small muted">رمز سري يُطلب عند فتح التطبيق على هذا الجهاز، عشان ما أحد يشوف أرقامك.</p><div class="btns"><button class="btn" data-a="pin">'+(pinGet()?"غيّر الرمز أو ألغِ القفل":"فعّل القفل برمز")+"</button></div></section>";
+  h+='<section class="card"><div class="card-h"><h2>قفل التطبيق</h2><span class="chip '+(pinGet()?"done":"")+'">'+(pinGet()?"مفعّل":"غير مفعّل")+'</span></div><p class="small muted">رمز سري يُطلب عند فتح التطبيق على هذا الجهاز، عشان ما أحد يشوف أرقامك.</p><div class="btns"><button class="btn" data-a="pin">'+(pinGet()?"غيّر الرمز أو ألغِ القفل":"فعّل القفل برمز")+"</button>"+(bioAvail()?'<button class="btn'+(bioGet()?"":" primary")+'" data-a="bio">'+(bioGet()?"ألغِ الفتح بالوجه أو البصمة":"فعّل الفتح بالوجه أو البصمة")+"</button>":"")+"</div>"+(bioGet()?'<p class="small muted">الفتح بالوجه أو البصمة مفعّل على هذا الجهاز، والرمز السري يبقى احتياط.</p>':"")+"</section>";
   {const sk=snapKeys().reverse();
    h+='<section class="card"><h2>النسخ الاحتياطية</h2><p class="small muted">التطبيق يحفظ نسخة تلقائية كل يوم على هذا الجهاز لآخر 7 أيام'+(syncOn()?"، وبياناتك كمان محفوظة في المزامنة":"")+'. لو خربت شي بالغلط، رجّع نسخة يوم سابق.</p>'+(sk.length?'<div class="fields"><div class="field"><label for="snapSel">نسخة يوم</label><select id="snapSel">'+sk.map(k=>'<option value="'+k+'">'+dLabel(k.slice(SNAP.length))+" "+k.slice(SNAP.length,SNAP.length+4)+"</option>").join("")+'</select></div><div class="field"><label>&nbsp;</label><button class="btn" data-a="snaprestore">رجّع هذي النسخة</button></div></div>':"")+'<div class="btns"><button class="btn" data-a="export">مشاركة نسخة يدوية</button><button class="btn" data-a="import">استرجاع نسخة يدوية</button><button class="btn danger" data-a="reset">رجوع للخطة الأصلية</button></div></section>'}
   h+='<section class="card"><div class="card-h"><h2>الإصدار '+APPV+"</h2>"+(location.protocol.startsWith("http")?'<button class="btn small" data-a="appupdate">حدّث التطبيق الحين</button>':"")+'</div><p class="small muted">'+(location.protocol.startsWith("http")?"التطبيق يتحدث لحاله لما تفتحه وفيه إنترنت. لو قلت لك فيه إصدار جديد وما طلع، اضغط الزر.":"نسخة التابلت تتحدث بتثبيت ملف APK الجديد فوقها.")+"</p></section>";
@@ -1337,18 +1337,35 @@ const PINKEY="sadad-pin";
 const pinHash=x=>{let h=5381;const z="sadad:"+x;for(let i=0;i<z.length;i++)h=((h<<5)+h+z.charCodeAt(i))>>>0;return String(h)};
 const pinGet=()=>{try{return localStorage.getItem(PINKEY)||""}catch(e){return""}};
 let hiddenAt=0;
+/* face / fingerprint unlock: the device does the matching (Face ID, Touch ID, Android biometrics); the code is the fallback */
+const BIOKEY="sadad-bio";
+const bioGet=()=>{try{return localStorage.getItem(BIOKEY)||""}catch(e){return""}};
+const bioKind=()=>Native.has("auth")?"native":(window.PublicKeyCredential&&window.isSecureContext&&navigator.credentials?"web":"");
+function bioAvail(){const k=bioKind();if(k==="native"){try{return !!AndroidBridge.canAuth()}catch(e){return false}}return k==="web"}
+const b64=buf=>btoa(String.fromCharCode.apply(null,new Uint8Array(buf))),unb64=x=>Uint8Array.from(atob(x),c=>c.charCodeAt(0));
+const rndBytes=n=>{const a=new Uint8Array(n);crypto.getRandomValues(a);return a};
+let nativeAuthCb=null;window.onNativeAuth=ok=>{const f=nativeAuthCb;nativeAuthCb=null;if(f)f(!!ok)};
+function bioAsk(){
+  if(bioKind()==="native")return new Promise(res=>{nativeAuthCb=res;try{AndroidBridge.auth()}catch(e){nativeAuthCb=null;res(false)}});
+  const id=bioGet();if(!id||id==="native"||bioKind()!=="web")return Promise.resolve(false);
+  try{return navigator.credentials.get({publicKey:{challenge:rndBytes(32),allowCredentials:[{type:"public-key",id:unb64(id),transports:["internal"]}],userVerification:"required",timeout:60000}}).then(c=>!!c,()=>false)}catch(e){return Promise.resolve(false)}}
+function bioEnable(){
+  if(bioKind()==="native")return bioAsk().then(ok=>{if(ok)try{localStorage.setItem(BIOKEY,"native")}catch(e){}return ok});
+  try{return navigator.credentials.create({publicKey:{challenge:rndBytes(32),rp:{name:"دفتر السداد"},user:{id:rndBytes(16),name:"daftar",displayName:"دفتر السداد"},pubKeyCredParams:[{type:"public-key",alg:-7},{type:"public-key",alg:-257}],authenticatorSelection:{authenticatorAttachment:"platform",userVerification:"required",residentKey:"discouraged"},timeout:60000,attestation:"none"}}).then(c=>{if(!c)return false;try{localStorage.setItem(BIOKEY,b64(c.rawId))}catch(e){return false}return true},()=>false)}catch(e){return Promise.resolve(false)}}
 function lockNow(){
   if(!pinGet()||$("#lock"))return;
-  const d=document.createElement("div");d.id="lock";
-  d.innerHTML='<form><h2>دفتر السداد</h2><p>اكتب الرمز السري</p><input id="lockIn" type="password" inputmode="numeric" autocomplete="off" maxlength="8" aria-label="الرمز السري"><button class="btn">فتح</button><p class="small" id="lockMsg"></p></form>';
+  const d=document.createElement("div");d.id="lock";const bio=!!bioGet()&&!!bioKind();
+  d.innerHTML='<form><h2>دفتر السداد</h2>'+(bio?'<button type="button" class="btn" id="lockBio">افتح بالوجه أو البصمة</button><p>أو اكتب الرمز السري</p>':"<p>اكتب الرمز السري</p>")+'<input id="lockIn" type="password" inputmode="numeric" autocomplete="off" maxlength="8" aria-label="الرمز السري"><button class="btn">فتح</button><p class="small" id="lockMsg"></p></form>';
   document.body.appendChild(d);
+  if(bio){let busy=false;const go=quiet=>{if(busy)return;busy=true;bioAsk().then(ok=>{busy=false;if(ok)d.remove();else if(!quiet){const m=$("#lockMsg");if(m)m.textContent="ما تم التحقق. جرّب مرة ثانية أو اكتب الرمز"}})};
+    $("#lockBio").onclick=()=>go(false);setTimeout(()=>{if($("#lock"))go(true)},350)}
   d.querySelector("form").addEventListener("submit",e=>{e.preventDefault();const i=$("#lockIn");if(pinHash(i.value)===pinGet())d.remove();else{$("#lockMsg").textContent="الرمز غير صحيح";i.value=""}});
-  setTimeout(()=>{const i=$("#lockIn");if(i)i.focus()},150)}
+  if(!bio)setTimeout(()=>{const i=$("#lockIn");if(i)i.focus()},150)}
 function pinSheet(){
   const has=!!pinGet();
   openSheet("<h2>قفل التطبيق</h2>"+'<p class="small muted">رمز من 4 إلى 8 أرقام يُطلب كل ما تفتح التطبيق على هذا الجهاز. لو نسيته: احذف التطبيق وثبّته من جديد، واربط المزامنة فترجع بياناتك.</p><form>'+(has?field("الرمز الحالي","cur","","password",'inputmode="numeric" autocomplete="off"'):"")+field(has?"الرمز الجديد (اتركه فاضي لإلغاء القفل)":"الرمز","p1","","password",'inputmode="numeric" autocomplete="off" maxlength="8"')+field("أعد كتابة الرمز","p2","","password",'inputmode="numeric" autocomplete="off" maxlength="8"')+actionsRow("حفظ")+"</form>",fd=>{
     if(has&&pinHash(fd.cur)!==pinGet()){toast("الرمز الحالي غير صحيح");return false}
-    if(!fd.p1&&has){try{localStorage.removeItem(PINKEY)}catch(e){}closeSheet(true);render();toast("انلغى القفل");return false}
+    if(!fd.p1&&has){try{localStorage.removeItem(PINKEY);localStorage.removeItem(BIOKEY)}catch(e){}closeSheet(true);render();toast("انلغى القفل");return false}
     if(!/^[0-9]{4,8}$/.test(fd.p1)){toast("الرمز لازم يكون 4 إلى 8 أرقام");return false}
     if(fd.p1!==fd.p2){toast("الرمزين ما يتطابقون");return false}
     try{localStorage.setItem(PINKEY,pinHash(fd.p1))}catch(e){toast("ما قدرت أحفظ الرمز");return false}
@@ -1447,6 +1464,9 @@ document.addEventListener("click",e=>{
     case"advice":adviceSheet();break;
     case"syncsetup":syncSheet();break;
     case"pin":pinSheet();break;
+    case"bio":{if(bioGet()){try{localStorage.removeItem(BIOKEY)}catch(e){}render();toast("انلغى الفتح بالوجه أو البصمة");break}
+      if(!pinGet()){toast("فعّل القفل برمز أول، لأن الرمز هو الاحتياط",5000);pinSheet();break}
+      bioEnable().then(ok=>{render();toast(ok?"تفعّل الفتح بالوجه أو البصمة على هذا الجهاز":"ما تم التفعيل. تأكد إن الوجه أو البصمة مفعّلة في إعدادات الجهاز",6000)});break}
     case"extra":extraSheet(el.dataset.id||null);break;
     case"addcontact":contactSheet(el.dataset.id);break;
     case"contact":contactSheet(null,el.dataset.cid);break;
